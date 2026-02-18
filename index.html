@@ -1,0 +1,819 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Kadam Clash - Live Running Game</title>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
+            background: #1a1a2e;
+            color: white;
+            height: 100vh;
+            overflow: hidden;
+        }
+
+        #map {
+            height: 100vh;
+            width: 100vw;
+            position: fixed;
+            top: 0;
+            left: 0;
+            z-index: 1;
+        }
+
+        .overlay {
+            position: fixed;
+            bottom: 20px;
+            left: 20px;
+            right: 20px;
+            z-index: 2;
+            display: flex;
+            justify-content: center;
+            pointer-events: none;
+        }
+
+        .run-card {
+            background: rgba(255, 255, 255, 0.95);
+            backdrop-filter: blur(10px);
+            border-radius: 30px;
+            padding: 20px;
+            box-shadow: 0 20px 40px rgba(0,0,0,0.4);
+            width: 100%;
+            max-width: 400px;
+            pointer-events: auto;
+            color: #333;
+            transition: all 0.3s ease;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+
+        .run-card.running {
+            background: rgba(102, 126, 234, 0.95);
+            color: white;
+        }
+
+        .run-card.running button {
+            background: white;
+            color: #667eea;
+        }
+
+        .location-bar {
+            position: fixed;
+            top: 20px;
+            left: 20px;
+            right: 20px;
+            z-index: 2;
+            display: flex;
+            justify-content: space-between;
+            pointer-events: none;
+        }
+
+        .location-info {
+            background: rgba(0,0,0,0.7);
+            backdrop-filter: blur(10px);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 30px;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            pointer-events: auto;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+
+        .status-badge {
+            background: rgba(0,0,0,0.7);
+            backdrop-filter: blur(10px);
+            color: white;
+            padding: 10px 20px;
+            border-radius: 30px;
+            font-size: 14px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+            pointer-events: auto;
+        }
+
+        .status-badge.online {
+            background: rgba(46, 125, 50, 0.9);
+        }
+
+        .user-selector {
+            position: fixed;
+            top: 20px;
+            right: 20px;
+            z-index: 2;
+            background: rgba(255,255,255,0.95);
+            border-radius: 30px;
+            padding: 5px;
+            pointer-events: auto;
+            display: flex;
+            gap: 5px;
+            box-shadow: 0 5px 15px rgba(0,0,0,0.3);
+        }
+
+        .user-btn {
+            padding: 10px 20px;
+            border: none;
+            border-radius: 25px;
+            background: transparent;
+            color: #333;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+        }
+
+        .user-btn.active {
+            background: #667eea;
+            color: white;
+        }
+
+        .stats-grid {
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 15px;
+            margin: 20px 0;
+        }
+
+        .stat-item {
+            text-align: center;
+        }
+
+        .stat-label {
+            font-size: 12px;
+            opacity: 0.8;
+            margin-bottom: 5px;
+        }
+
+        .stat-value {
+            font-size: 24px;
+            font-weight: 700;
+        }
+
+        .progress-ring {
+            width: 60px;
+            height: 60px;
+            margin: 0 auto 10px;
+        }
+
+        button {
+            background: #667eea;
+            color: white;
+            border: none;
+            padding: 15px 30px;
+            border-radius: 30px;
+            font-size: 18px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s;
+            width: 100%;
+            margin-top: 10px;
+        }
+
+        button:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 10px 20px rgba(102, 126, 234, 0.4);
+        }
+
+        button:disabled {
+            background: #ccc;
+            cursor: not-allowed;
+            transform: none;
+        }
+
+        button.running {
+            background: #f44336;
+        }
+
+        .toast {
+            position: fixed;
+            top: 20px;
+            left: 50%;
+            transform: translateX(-50%);
+            background: white;
+            color: #333;
+            padding: 12px 24px;
+            border-radius: 30px;
+            box-shadow: 0 10px 30px rgba(0,0,0,0.3);
+            z-index: 1000;
+            display: none;
+            font-weight: 600;
+            animation: slideDown 0.3s ease;
+        }
+
+        @keyframes slideDown {
+            from {
+                transform: translate(-50%, -100%);
+                opacity: 0;
+            }
+            to {
+                transform: translate(-50%, 0);
+                opacity: 1;
+            }
+        }
+
+        .toast.success { background: #4caf50; color: white; }
+        .toast.error { background: #f44336; color: white; }
+        .toast.info { background: #2196f3; color: white; }
+
+        .loading {
+            display: inline-block;
+            width: 20px;
+            height: 20px;
+            border: 3px solid rgba(255,255,255,0.3);
+            border-radius: 50%;
+            border-top-color: white;
+            animation: spin 1s ease-in-out infinite;
+        }
+
+        @keyframes spin {
+            to { transform: rotate(360deg); }
+        }
+
+        .territory-legend {
+            position: fixed;
+            bottom: 100px;
+            right: 20px;
+            z-index: 2;
+            background: rgba(0,0,0,0.7);
+            backdrop-filter: blur(10px);
+            padding: 15px;
+            border-radius: 15px;
+            color: white;
+            font-size: 12px;
+            pointer-events: none;
+        }
+
+        .legend-item {
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            margin: 5px 0;
+        }
+
+        .color-box {
+            width: 20px;
+            height: 20px;
+            border-radius: 4px;
+        }
+
+        .color-box.own { background: #4caf50; }
+        .color-box.other { background: #f44336; }
+        .color-box.current { background: #667eea; }
+    </style>
+</head>
+<body>
+    <div id="map"></div>
+
+    <!-- Location Bar -->
+    <div class="location-bar">
+        <div class="location-info" id="locationInfo">
+            <span class="loading"></span>
+            Getting your location...
+        </div>
+        <div class="status-badge" id="apiStatus">
+            <span class="loading"></span>
+            Connecting...
+        </div>
+    </div>
+
+    <!-- User Selector -->
+    <div class="user-selector" id="userSelector">
+        <button class="user-btn" onclick="showUserDialog()">👤 Select Runner</button>
+    </div>
+
+    <!-- Territory Legend -->
+    <div class="territory-legend">
+        <div class="legend-item">
+            <div class="color-box own"></div>
+            <span>Your territories</span>
+        </div>
+        <div class="legend-item">
+            <div class="color-box other"></div>
+            <span>Others' territories</span>
+        </div>
+        <div class="legend-item">
+            <div class="color-box current"></div>
+            <span>Current run path</span>
+        </div>
+    </div>
+
+    <!-- Run Control Card -->
+    <div class="overlay">
+        <div class="run-card" id="runCard">
+            <h2 style="text-align: center; margin-bottom: 10px;" id="runnerName">🏃 Start Running</h2>
+            
+            <div class="stats-grid">
+                <div class="stat-item">
+                    <div class="stat-label">Distance</div>
+                    <div class="stat-value" id="distance">0.00</div>
+                    <div>km</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Duration</div>
+                    <div class="stat-value" id="duration">00:00</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Laps</div>
+                    <div class="stat-value" id="laps">0</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-label">Avg Speed</div>
+                    <div class="stat-value" id="avgSpeed">0.0</div>
+                    <div>km/h</div>
+                </div>
+            </div>
+
+            <button onclick="toggleRun()" id="runBtn" disabled>
+                ▶️ Start Run
+            </button>
+            
+            <p style="text-align: center; margin-top: 10px; font-size: 12px; opacity: 0.7;" id="runStatus">
+                Select a runner to begin
+            </p>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast"></div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+    <script>
+        // Configuration
+        const API_BASE = 'https://kadamclashbackend.onrender.com';
+        
+        // Game state
+        let map;
+        let currentPosition = null;
+        let watchId = null;
+        let isRunning = false;
+        let selectedUserId = null;
+        let selectedUsername = null;
+        let currentRunPath = [];
+        let runStartTime = null;
+        let runTimer = null;
+        let lapCount = 0;
+        let lastLapTime = null;
+        let totalDistance = 0;
+        
+        // Map layers
+        let userLocationMarker = null;
+        let runPathLayer = null;
+        let territoryLayer = null;
+        let userCircle = null;
+
+        // Initialize map with current location
+        function initMap() {
+            map = L.map('map').setView([0, 0], 15);
+            
+            L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+                attribution: '© OpenStreetMap contributors'
+            }).addTo(map);
+
+            runPathLayer = L.layerGroup().addTo(map);
+            territoryLayer = L.layerGroup().addTo(map);
+
+            // Get current location immediately
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    position => {
+                        const { latitude, longitude } = position.coords;
+                        currentPosition = [latitude, longitude];
+                        
+                        // Center map on user
+                        map.setView(currentPosition, 16);
+                        
+                        // Add user marker
+                        userLocationMarker = L.marker(currentPosition, {
+                            icon: L.divIcon({
+                                className: 'user-marker',
+                                html: '📍',
+                                iconSize: [30, 30]
+                            })
+                        }).addTo(map);
+                        
+                        // Add accuracy circle
+                        userCircle = L.circle(currentPosition, {
+                            radius: position.coords.accuracy,
+                            color: '#667eea',
+                            fillColor: '#667eea',
+                            fillOpacity: 0.15,
+                            weight: 1
+                        }).addTo(map);
+                        
+                        document.getElementById('locationInfo').innerHTML = `
+                            📍 ${latitude.toFixed(4)}, ${longitude.toFixed(4)}
+                        `;
+                        
+                        // Start watching position
+                        startWatchingPosition();
+                    },
+                    error => {
+                        document.getElementById('locationInfo').innerHTML = '❌ Location access denied';
+                        console.error('Geolocation error:', error);
+                    },
+                    {
+                        enableHighAccuracy: true,
+                        timeout: 5000,
+                        maximumAge: 0
+                    }
+                );
+            }
+        }
+
+        // Watch position continuously
+        function startWatchingPosition() {
+            watchId = navigator.geolocation.watchPosition(
+                position => {
+                    const { latitude, longitude, speed, accuracy } = position.coords;
+                    const newPosition = [latitude, longitude];
+                    
+                    // Update current position
+                    currentPosition = newPosition;
+                    
+                    // Update marker
+                    if (userLocationMarker) {
+                        userLocationMarker.setLatLng(newPosition);
+                    }
+                    
+                    if (userCircle) {
+                        userCircle.setLatLng(newPosition);
+                        userCircle.setRadius(accuracy);
+                    }
+                    
+                    // Center map on user if running
+                    if (isRunning) {
+                        map.panTo(newPosition);
+                    }
+                    
+                    // Update location display
+                    document.getElementById('locationInfo').innerHTML = `
+                        📍 ${latitude.toFixed(4)}, ${longitude.toFixed(4)} 
+                        ${speed ? `| ${(speed * 3.6).toFixed(1)} km/h` : ''}
+                    `;
+                    
+                    // If running, add point to path
+                    if (isRunning) {
+                        addPointToRun(newPosition, speed);
+                    }
+                },
+                error => console.error('Watch error:', error),
+                {
+                    enableHighAccuracy: true,
+                    maximumAge: 0,
+                    timeout: 5000
+                }
+            );
+        }
+
+        // Add point to current run
+        function addPointToRun(position, speed) {
+            currentRunPath.push({
+                lat: position[0],
+                lng: position[1],
+                timestamp: Date.now(),
+                speed: speed || 0
+            });
+            
+            // Update path on map
+            runPathLayer.clearLayers();
+            
+            if (currentRunPath.length > 1) {
+                const latlngs = currentRunPath.map(p => [p.lat, p.lng]);
+                L.polyline(latlngs, {
+                    color: '#667eea',
+                    weight: 4,
+                    opacity: 0.8
+                }).addTo(runPathLayer);
+            }
+            
+            // Add points
+            currentRunPath.forEach((point, i) => {
+                L.circleMarker([point.lat, point.lng], {
+                    radius: i === 0 ? 5 : 3,
+                    color: i === 0 ? '#4caf50' : '#667eea',
+                    fillColor: i === 0 ? '#4caf50' : '#667eea',
+                    fillOpacity: 0.8
+                }).addTo(runPathLayer);
+            });
+            
+            // Update stats
+            updateRunStats();
+        }
+
+        // Update run statistics
+        function updateRunStats() {
+            if (currentRunPath.length < 2) return;
+            
+            // Calculate total distance using Haversine formula
+            totalDistance = 0;
+            for (let i = 1; i < currentRunPath.length; i++) {
+                const p1 = currentRunPath[i-1];
+                const p2 = currentRunPath[i];
+                totalDistance += calculateDistance(
+                    [p1.lat, p1.lng],
+                    [p2.lat, p2.lng]
+                );
+            }
+            
+            // Update distance (in km)
+            document.getElementById('distance').textContent = (totalDistance / 1000).toFixed(2);
+            
+            // Calculate average speed
+            const avgSpeed = (totalDistance / 1000) / ((Date.now() - runStartTime) / 3600000);
+            document.getElementById('avgSpeed').textContent = avgSpeed.toFixed(1);
+            
+            // Update duration
+            const duration = Math.floor((Date.now() - runStartTime) / 1000);
+            const mins = Math.floor(duration / 60);
+            const secs = duration % 60;
+            document.getElementById('duration').textContent = 
+                `${mins.toString().padStart(2, '0')}:${secs.toString().padStart(2, '0')}`;
+            
+            // Check for laps (every 400m)
+            const lapDistance = 0.4; // 400m in km
+            const expectedLaps = Math.floor((totalDistance / 1000) / lapDistance);
+            if (expectedLaps > lapCount) {
+                lapCount = expectedLaps;
+                document.getElementById('laps').textContent = lapCount;
+                
+                // Show lap notification
+                showToast(`🏁 Lap ${lapCount} completed!`, 'success');
+            }
+        }
+
+        // Calculate distance between two points (meters)
+        function calculateDistance(p1, p2) {
+            const R = 6371e3; // Earth's radius in meters
+            const φ1 = p1[0] * Math.PI / 180;
+            const φ2 = p2[0] * Math.PI / 180;
+            const Δφ = (p2[0] - p1[0]) * Math.PI / 180;
+            const Δλ = (p2[1] - p1[1]) * Math.PI / 180;
+
+            const a = Math.sin(Δφ/2) * Math.sin(Δφ/2) +
+                    Math.cos(φ1) * Math.cos(φ2) *
+                    Math.sin(Δλ/2) * Math.sin(Δλ/2);
+            const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
+
+            return R * c;
+        }
+
+        // Toggle run start/stop
+        function toggleRun() {
+            if (!selectedUserId) {
+                showToast('Please select a runner first!', 'error');
+                return;
+            }
+            
+            if (!isRunning) {
+                startRun();
+            } else {
+                stopRun();
+            }
+        }
+
+        // Start a new run
+        function startRun() {
+            isRunning = true;
+            runStartTime = Date.now();
+            currentRunPath = [];
+            lapCount = 0;
+            totalDistance = 0;
+            
+            // Clear previous path
+            runPathLayer.clearLayers();
+            
+            // Add starting point
+            if (currentPosition) {
+                addPointToRun(currentPosition, 0);
+            }
+            
+            // Update UI
+            document.getElementById('runBtn').textContent = '⏹️ Stop Run';
+            document.getElementById('runBtn').className = 'running';
+            document.getElementById('runCard').classList.add('running');
+            document.getElementById('runStatus').textContent = '🏃 Running...';
+            document.getElementById('runnerName').textContent = `🏃 ${selectedUsername} is running`;
+            
+            // Start timer
+            runTimer = setInterval(() => {
+                if (isRunning) {
+                    updateRunStats();
+                }
+            }, 1000);
+            
+            showToast('Run started! Start moving to create territory', 'success');
+        }
+
+        // Stop run and submit to API
+        async function stopRun() {
+            isRunning = false;
+            clearInterval(runTimer);
+            
+            document.getElementById('runBtn').textContent = '▶️ Start Run';
+            document.getElementById('runBtn').className = '';
+            document.getElementById('runCard').classList.remove('running');
+            document.getElementById('runStatus').textContent = 'Processing run...';
+            
+            if (currentRunPath.length < 5) {
+                showToast('Run too short! Keep moving to create territory', 'error');
+                resetRun();
+                return;
+            }
+            
+            // Create polygon from run path
+            const polygon = createPolygonFromPath(currentRunPath);
+            
+            // Calculate stats
+            const duration = Math.floor((Date.now() - runStartTime) / 1000);
+            const avgSpeed = (totalDistance / 1000) / (duration / 3600);
+            
+            // Submit to API
+            try {
+                document.getElementById('runBtn').disabled = true;
+                
+                const response = await fetch(`${API_BASE}/api/run`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({
+                        userId: selectedUserId,
+                        polygon: polygon,
+                        duration: duration,
+                        laps: lapCount || 1,
+                        avgSpeed: avgSpeed
+                    })
+                });
+                
+                const result = await response.json();
+                
+                if (result.created) {
+                    showToast('✨ New territory created!', 'success');
+                } else if (result.captured) {
+                    showToast('⚔️ Territory CAPTURED!', 'success');
+                } else {
+                    showToast('🏃 Run recorded', 'info');
+                }
+                
+                // Refresh territories
+                loadTerritories();
+                
+            } catch (error) {
+                showToast('Error submitting run: ' + error.message, 'error');
+            } finally {
+                resetRun();
+            }
+        }
+
+        // Create GeoJSON polygon from run path
+        function createPolygonFromPath(path) {
+            // Buffer the path to create a polygon
+            const points = path.map(p => [p.lng, p.lat]); // GeoJSON uses [lng, lat]
+            
+            // Add buffer around path (simplified - in real app you'd use turf.buffer)
+            // For now, we'll create a simple polygon by adding offset points
+            const polygon = {
+                type: 'Polygon',
+                coordinates: [points]
+            };
+            
+            return polygon;
+        }
+
+        // Reset run state
+        function resetRun() {
+            currentRunPath = [];
+            runPathLayer.clearLayers();
+            document.getElementById('distance').textContent = '0.00';
+            document.getElementById('duration').textContent = '00:00';
+            document.getElementById('laps').textContent = '0';
+            document.getElementById('avgSpeed').textContent = '0.0';
+            document.getElementById('runBtn').disabled = false;
+            document.getElementById('runStatus').textContent = 'Ready to run';
+            document.getElementById('runnerName').textContent = `🏃 ${selectedUsername}`;
+        }
+
+        // Show user selection dialog
+        function showUserDialog() {
+            const username = prompt('Enter your runner name (or create new):');
+            if (username) {
+                createOrSelectUser(username);
+            }
+        }
+
+        // Create or select user
+        async function createOrSelectUser(username) {
+            try {
+                const response = await fetch(`${API_BASE}/api/users`, {
+                    method: 'POST',
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({username})
+                });
+                
+                const user = await response.json();
+                
+                selectedUserId = user.id || user._id;
+                selectedUsername = user.username;
+                
+                document.getElementById('runnerName').textContent = `🏃 ${selectedUsername}`;
+                document.getElementById('runBtn').disabled = false;
+                document.getElementById('userSelector').innerHTML = `
+                    <button class="user-btn active" onclick="showUserDialog()">
+                        👤 ${selectedUsername}
+                    </button>
+                `;
+                
+                showToast(`Welcome, ${selectedUsername}!`, 'success');
+                
+                // Load territories for this user
+                loadTerritories();
+                
+            } catch (error) {
+                showToast('Error creating user', 'error');
+            }
+        }
+
+        // Load territories from API
+        async function loadTerritories() {
+            try {
+                const response = await fetch(`${API_BASE}/api/territories`);
+                const territories = await response.json();
+                
+                territoryLayer.clearLayers();
+                
+                territories.forEach(territory => {
+                    if (territory.geometry && territory.geometry.coordinates) {
+                        const coords = territory.geometry.coordinates[0].map(c => [c[1], c[0]]);
+                        
+                        // Color based on ownership
+                        const isOwn = territory.ownerId?._id === selectedUserId || 
+                                     territory.ownerId === selectedUserId;
+                        
+                        const polygon = L.polygon(coords, {
+                            color: isOwn ? '#4caf50' : '#f44336',
+                            weight: 3,
+                            fillColor: isOwn ? '#4caf50' : '#f44336',
+                            fillOpacity: 0.2
+                        }).addTo(territoryLayer);
+                        
+                        polygon.bindPopup(`
+                            <b>${isOwn ? 'YOUR' : 'ENEMY'} TERRITORY</b><br>
+                            Owner: ${territory.ownerId?.username || 'Unknown'}<br>
+                            Area: ${territory.area?.toFixed(0) || 'N/A'} m²<br>
+                            Best Lap: ${territory.bestTime?.toFixed(1) || 'N/A'}s<br>
+                            Max Laps: ${territory.maxLaps || 'N/A'}
+                        `);
+                    }
+                });
+                
+            } catch (error) {
+                console.error('Error loading territories:', error);
+            }
+        }
+
+        // Check API health
+        async function checkAPI() {
+            try {
+                const response = await fetch(`${API_BASE}/health`);
+                const data = await response.json();
+                
+                const statusEl = document.getElementById('apiStatus');
+                if (data.database === 'connected') {
+                    statusEl.className = 'status-badge online';
+                    statusEl.innerHTML = '✅ Connected';
+                } else {
+                    statusEl.innerHTML = '⚠️ DB Offline';
+                }
+            } catch (error) {
+                document.getElementById('apiStatus').innerHTML = '❌ Offline';
+            }
+        }
+
+        // Show toast notification
+        function showToast(message, type = 'info') {
+            const toast = document.getElementById('toast');
+            toast.className = `toast ${type}`;
+            toast.innerHTML = message;
+            toast.style.display = 'block';
+            
+            setTimeout(() => {
+                toast.style.display = 'none';
+            }, 3000);
+        }
+
+        // Initialize everything
+        document.addEventListener('DOMContentLoaded', () => {
+            initMap();
+            checkAPI();
+            setInterval(loadTerritories, 10000); // Refresh every 10 seconds
+        });
+    </script>
+</body>
+</html>
