@@ -450,7 +450,7 @@
     </div>
   </div>
 
-  <!-- Primary action button (now collapsible) -->
+  <!-- Primary action button (collapsible) -->
   <button class="action-btn glowing" id="mainAction" onclick="toggleRun()">▶️</button>
 
   <!-- Toast container -->
@@ -488,18 +488,20 @@
     // ---------- CONFIG ----------
     const API_BASE = 'https://kadamclashbackend.onrender.com';
     const ACCENT = '#ff8c42';
+    const MIN_DISTANCE_FOR_POINT = 3; // meters – ignore micro‑movements
+    const MIN_SPEED_FOR_POINT = 1.0; // km/h – ignore stationary drift
 
     // ---------- GLOBAL STATE ----------
     let map;
     let userMarker, accuracyCircle, pathLayer, territoryLayer, previewLayer;
     let currentPos = null;
+    let lastRecordedPos = null; // for distance‑based filtering
     let watchId = null;
     let isRunning = false;
     let runStartTime = null;
     let runPath = [];
     let totalDistance = 0; // meters
     let lapCount = 0;
-    let lastLapDistance = 0;
     const LAP_DIST = 100; // meters per lap
     let timerInterval;
     let user = null;
@@ -514,11 +516,13 @@
       territoryLayer = L.layerGroup().addTo(map);
       previewLayer = L.layerGroup().addTo(map);
 
-      // map click toggles top header and central button (collapsible)
-      map.on('click', () => {
+      // Toggle UI on map tap/click (mobile‑friendly)
+      const toggleUI = (e) => {
         document.getElementById('topHeader').classList.toggle('hidden');
         document.getElementById('mainAction').classList.toggle('hidden');
-      });
+      };
+      map.on('click', toggleUI);
+      map.on('touchstart', toggleUI); // for instant response on mobile
 
       if (navigator.geolocation) {
         navigator.geolocation.getCurrentPosition(pos => onLocationUpdate(pos), e => showToast('Location error', 'error'), { enableHighAccuracy: true });
@@ -541,15 +545,29 @@
         accuracyCircle.setLatLng(newPos).setRadius(accuracy);
       }
 
-      // filter speed (max 20 km/h)
+      // Filter speed (max 20 km/h for running, ignore unrealistic spikes)
       let rawSpeed = speed ? speed * 3.6 : 0;
       if (rawSpeed > 20) rawSpeed = 0;
 
       document.querySelector('.activity-chip').innerHTML = `🏃 ${rawSpeed.toFixed(1)} km/h`;
 
       if (isRunning) {
-        map.panTo(newPos);
-        addRunPoint(newPos, rawSpeed);
+        // Only record if moved enough OR speed > threshold
+        let shouldRecord = false;
+        if (runPath.length === 0) {
+          shouldRecord = true; // always record first point
+        } else {
+          const last = runPath[runPath.length - 1];
+          const dist = distance(last.lat, last.lng, newPos[0], newPos[1]);
+          if (dist >= MIN_DISTANCE_FOR_POINT || rawSpeed >= MIN_SPEED_FOR_POINT) {
+            shouldRecord = true;
+          }
+        }
+
+        if (shouldRecord) {
+          addRunPoint(newPos, rawSpeed);
+          map.panTo(newPos);
+        }
       }
     }
 
