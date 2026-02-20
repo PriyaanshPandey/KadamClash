@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-<title>Kadam Clash – Territory Runner</title>
+<title>Kadam Clash</title>
 
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css"/>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
@@ -13,44 +13,85 @@
 *{margin:0;padding:0;box-sizing:border-box;font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;}
 body{background:#0b0f1a;color:white;overflow:hidden;height:100vh;}
 #map{position:fixed;top:0;left:0;height:100vh;width:100vw;z-index:1;}
-.leaflet-tile{filter:brightness(0.7) contrast(1.2) saturate(0.8);}
+.leaflet-control-zoom{margin-top:90px !important;} /* FIX burger overlap */
 
-/* TOP BAR */
-.top-bar{position:fixed;top:14px;left:14px;right:14px;z-index:50;display:flex;justify-content:space-between;align-items:center;pointer-events:none;}
-.glass-chip{background:rgba(15,23,42,0.85);backdrop-filter:blur(16px);border:1px solid rgba(255,255,255,0.08);border-radius:50px;padding:10px 16px;font-size:13px;display:flex;align-items:center;gap:8px;pointer-events:auto;}
-.status-chip.online{background:#052e1a;border-color:#22c55e;}
+.top-left-ui{
+position:fixed;
+top:20px;
+left:20px;
+z-index:1000;
+display:flex;
+flex-direction:column;
+gap:12px;
+}
 
-/* MENU */
-.menu-btn{width:42px;height:42px;border-radius:50%;background:#0f172a;display:flex;align-items:center;justify-content:center;cursor:pointer;pointer-events:auto;}
+.menu-btn{
+width:44px;height:44px;border-radius:50%;
+background:#111827;display:flex;align-items:center;
+justify-content:center;cursor:pointer;
+}
 .menu-btn div{width:18px;height:2px;background:white;position:relative;}
-.menu-btn div::before,.menu-btn div::after{content:"";position:absolute;width:18px;height:2px;background:white;left:0;}
+.menu-btn div::before,.menu-btn div::after{
+content:"";position:absolute;width:18px;height:2px;background:white;left:0;
+}
 .menu-btn div::before{top:-6px;}
 .menu-btn div::after{top:6px;}
 
-.side-menu{position:fixed;top:0;left:-280px;height:100vh;width:260px;background:#0f172a;z-index:100;padding:28px 20px;transition:0.3s;display:flex;flex-direction:column;}
-.side-menu.open{left:0;}
-.menu-overlay{position:fixed;inset:0;background:rgba(0,0,0,0.6);z-index:90;display:none;}
-.menu-overlay.show{display:block;}
+.profile-chip{
+background:rgba(17,24,39,0.9);
+padding:10px 16px;
+border-radius:50px;
+font-size:14px;
+}
 
-.menu-item{padding:14px 10px;border-radius:12px;font-size:15px;margin-bottom:10px;cursor:pointer;}
-.menu-item:hover{background:#1e293b;}
+.run-panel{
+position:fixed;
+bottom:0;
+left:0;
+right:0;
+background:linear-gradient(to top,#0f172a,#111827);
+border-top-left-radius:28px;
+border-top-right-radius:28px;
+padding:20px;
+z-index:1000;
+box-shadow:0 -10px 40px rgba(0,0,0,0.8);
+}
 
-/* RUN CARD */
-.run-card-container{position:fixed;bottom:0;left:0;right:0;z-index:60;padding:18px;}
-.run-card{background:#111827;border-radius:28px;padding:22px 20px 26px;}
-.runner-name{text-align:center;font-size:18px;font-weight:600;margin-bottom:18px;color:#22c55e;}
-.stats-grid{display:grid;grid-template-columns:1fr 1fr;gap:18px 12px;margin-bottom:20px;}
-.stat-cell{text-align:center;}
-.stat-label{font-size:11px;opacity:0.6;}
-.stat-number{font-size:28px;font-weight:800;margin-top:4px;}
-.stat-unit{font-size:11px;opacity:0.6;margin-left:2px;}
-.run-action-btn{width:100%;padding:16px;border:none;border-radius:50px;font-size:18px;font-weight:700;cursor:pointer;background:#22c55e;color:#0b1120;}
-.run-action-btn.running{background:#ef4444;color:white;}
-.hint-text{text-align:center;margin-top:10px;font-size:12px;opacity:0.6;}
+.stats{
+display:flex;
+justify-content:space-between;
+margin-bottom:16px;
+}
 
-.toast{position:fixed;top:80px;left:50%;transform:translateX(-50%);background:#111827;padding:14px 22px;border-radius:50px;font-weight:600;display:none;z-index:200;}
-.toast.success{background:#065f46;}
-.toast.error{background:#7f1d1d;}
+.stat{text-align:center;}
+.stat span{display:block;font-size:12px;opacity:0.6;}
+.stat b{font-size:22px;}
+
+.run-btn{
+width:100%;
+padding:16px;
+border:none;
+border-radius:50px;
+font-size:18px;
+font-weight:700;
+cursor:pointer;
+background:#22c55e;
+color:#0b1120;
+}
+
+.run-btn.running{background:#ef4444;color:white;}
+
+.toast{
+position:fixed;
+top:80px;
+left:50%;
+transform:translateX(-50%);
+background:#111827;
+padding:12px 20px;
+border-radius:50px;
+display:none;
+z-index:2000;
+}
 </style>
 </head>
 
@@ -58,169 +99,171 @@ body{background:#0b0f1a;color:white;overflow:hidden;height:100vh;}
 
 <div id="map"></div>
 
-<div class="menu-overlay" id="menuOverlay"></div>
-
-<div class="side-menu" id="sideMenu">
-<h2 style="color:#22c55e;">Kadam Clash</h2>
-<div class="menu-item" onclick="selectRunner()">👤 My Profile</div>
+<div class="top-left-ui">
+<div class="menu-btn" onclick="selectRunner()"><div></div></div>
+<div class="profile-chip" id="profileName">Not selected</div>
 </div>
 
-<div class="top-bar">
-<div class="menu-btn" onclick="toggleMenu()"><div></div></div>
-<div class="glass-chip" id="locationInfo">📡 Acquiring GPS...</div>
-<div class="glass-chip" id="apiStatus">Connecting...</div>
+<div class="run-panel">
+<div class="stats">
+<div class="stat"><span>Distance</span><b id="distance">0.00</b> km</div>
+<div class="stat"><span>Time</span><b id="duration">00:00</b></div>
+<div class="stat"><span>Laps</span><b id="laps">0</b></div>
+</div>
+<button class="run-btn" id="runBtn" onclick="toggleRun()" disabled>Start Run</button>
 </div>
 
-<div class="run-card-container">
-<div class="run-card">
-<div class="runner-name" id="runnerDisplay">🏃 Start Running</div>
-
-<div class="stats-grid">
-<div class="stat-cell">
-<div class="stat-label">Distance</div>
-<div class="stat-number" id="distance">0.00</div><span class="stat-unit">km</span>
-</div>
-<div class="stat-cell">
-<div class="stat-label">Duration</div>
-<div class="stat-number" id="duration">00:00</div>
-</div>
-<div class="stat-cell">
-<div class="stat-label">Laps</div>
-<div class="stat-number" id="laps">0</div>
-</div>
-<div class="stat-cell">
-<div class="stat-label">Speed</div>
-<div class="stat-number" id="avgSpeed">0.0</div><span class="stat-unit">km/h</span>
-</div>
-</div>
-
-<button class="run-action-btn" id="runBtn" disabled onclick="toggleRun()">▶ Start Run</button>
-<div class="hint-text" id="runHint">Select profile to begin</div>
-</div>
-</div>
-
-<div id="toast" class="toast"></div>
+<div class="toast" id="toast"></div>
 
 <script>
 const API_BASE='https://kadamclashbackend.onrender.com';
-let map,currentPosition=null,watchId=null,isRunning=false,selectedUserId=null,selectedUsername=null;
-let runPath=[],runStartTime=null,runTimer=null,lapCount=0;
 
-const locationEl=document.getElementById('locationInfo');
-const apiStatusEl=document.getElementById('apiStatus');
+let map,currentPosition=null,isRunning=false;
+let selectedUserId=null,selectedUsername=null;
+let runPath=[],runStartTime=null,runTimer=null;
+let pathLayer,territoryLayer,livePolygonLayer;
+
 const runBtn=document.getElementById('runBtn');
-const runnerDisplay=document.getElementById('runnerDisplay');
-const runHint=document.getElementById('runHint');
+const profileName=document.getElementById('profileName');
 const distanceEl=document.getElementById('distance');
 const durationEl=document.getElementById('duration');
 const lapsEl=document.getElementById('laps');
-const avgSpeedEl=document.getElementById('avgSpeed');
 const toast=document.getElementById('toast');
 
-function showToast(msg,type='info'){
-toast.className=`toast ${type}`;
+function showToast(msg){
 toast.innerText=msg;
 toast.style.display='block';
 setTimeout(()=>toast.style.display='none',3000);
 }
 
-function toggleMenu(){
-document.getElementById('sideMenu').classList.toggle('open');
-document.getElementById('menuOverlay').classList.toggle('show');
-}
-document.getElementById('menuOverlay').onclick=toggleMenu;
+/* MAP */
+function initMap(){
+map=L.map('map',{zoomControl:true}).setView([20,0],2);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
+pathLayer=L.layerGroup().addTo(map);
+territoryLayer=L.layerGroup().addTo(map);
+livePolygonLayer=L.layerGroup().addTo(map);
 
-async function checkAPI(){
-try{
-const res=await fetch(`${API_BASE}/health`);
-const data=await res.json();
-if(data.database==='connected'){
-apiStatusEl.innerText='✅ Server ready';
-apiStatusEl.classList.add('online');
-}else apiStatusEl.innerText='⚠️ DB issue';
-}catch{apiStatusEl.innerText='❌ Offline';}
-}
-checkAPI();
+if(!navigator.geolocation)return showToast("GPS not supported");
 
-window.selectRunner=async function(){
-const name=prompt('Enter runner name:');
+navigator.geolocation.watchPosition(pos=>{
+currentPosition=[pos.coords.latitude,pos.coords.longitude];
+if(!isRunning)return;
+addPoint(currentPosition);
+},()=>showToast("Enable GPS"),{enableHighAccuracy:true});
+}
+
+/* USER */
+async function selectRunner(){
+const name=prompt("Enter username:");
 if(!name)return;
+
 try{
 const res=await fetch(`${API_BASE}/api/users`,{
 method:'POST',
 headers:{'Content-Type':'application/json'},
 body:JSON.stringify({username:name.trim()})
 });
-if(!res.ok)throw new Error();
 const user=await res.json();
 selectedUserId=user.id||user._id;
 selectedUsername=user.username;
-runnerDisplay.innerText=`🏃 ${selectedUsername}`;
+profileName.innerText="🏃 "+selectedUsername;
 runBtn.disabled=false;
-runHint.innerText='Ready to run';
-showToast(`Welcome ${selectedUsername}`,'success');
-}catch{
-showToast('User creation failed','error');
-}
-};
-
-function initMap(){
-map=L.map('map').setView([20,0],2);
-L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png').addTo(map);
-
-if(!navigator.geolocation){
-locationEl.innerText='❌ GPS not supported';
-return;
+loadTerritories();
+}catch{showToast("Server offline");}
 }
 
-navigator.geolocation.getCurrentPosition(pos=>{
-currentPosition=[pos.coords.latitude,pos.coords.longitude];
-map.setView(currentPosition,17);
-L.marker(currentPosition).addTo(map);
-locationEl.innerText='📍 GPS Ready';
-},geoError,{enableHighAccuracy:true,timeout:10000});
+/* RUN */
+function toggleRun(){
+if(!selectedUserId)return showToast("Select user first");
+if(!currentPosition)return showToast("Waiting GPS");
 
-watchId=navigator.geolocation.watchPosition(pos=>{
-currentPosition=[pos.coords.latitude,pos.coords.longitude];
-locationEl.innerText=`📍 ${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)}`;
-},geoError,{enableHighAccuracy:true,maximumAge:0,timeout:8000});
-}
+isRunning=!isRunning;
 
-function geoError(err){
-if(err.code===1)locationEl.innerText='❌ GPS permission denied';
-else if(err.code===2)locationEl.innerText='⚠️ Location unavailable';
-else if(err.code===3)locationEl.innerText='⏳ GPS timeout';
-showToast('Enable GPS','error');
-}
-
-window.toggleRun=function(){
-if(!selectedUserId)return showToast('Select runner first','error');
-if(!currentPosition)return showToast('Waiting for GPS','error');
-if(!isRunning)startRun();else stopRun();
-};
-
-function startRun(){
-isRunning=true;
-runStartTime=Date.now();
+if(isRunning){
 runPath=[];
-lapCount=0;
-runBtn.innerText='⏹ Stop Run';
+runStartTime=Date.now();
+runBtn.innerText="Stop Run";
 runBtn.classList.add('running');
-runHint.innerText='Running...';
 runTimer=setInterval(updateStats,1000);
-showToast('Run started','success');
+}else{
+stopRun();
+}
 }
 
-function stopRun(){
+function addPoint(pos){
+runPath.push(pos);
+drawPath();
+updateLivePolygon();
+updateStats();
+}
+
+function drawPath(){
+pathLayer.clearLayers();
+if(runPath.length<2)return;
+L.polyline(runPath,{color:'#22c55e',weight:5}).addTo(pathLayer);
+}
+
+function updateLivePolygon(){
+if(runPath.length<3)return;
+livePolygonLayer.clearLayers();
+const coords=runPath.map(p=>[p[1],p[0]]);
+const line=turf.lineString(coords);
+const buffered=turf.buffer(line,8,{units:'meters'});
+L.geoJSON(buffered,{style:{color:'#22c55e',fillOpacity:0.3}}).addTo(livePolygonLayer);
+}
+
+async function stopRun(){
 isRunning=false;
 clearInterval(runTimer);
-runBtn.innerText='▶ Start Run';
+runBtn.innerText="Start Run";
 runBtn.classList.remove('running');
-runHint.innerText='Run complete';
-showToast('Run stopped','success');
+
+if(runPath.length<5)return showToast("Run too short");
+
+const coords=runPath.map(p=>[p[1],p[0]]);
+const line=turf.lineString(coords);
+const buffered=turf.buffer(line,8,{units:'meters'});
+
+try{
+await fetch(`${API_BASE}/api/run`,{
+method:'POST',
+headers:{'Content-Type':'application/json'},
+body:JSON.stringify({
+userId:selectedUserId,
+polygon:buffered.geometry
+})
+});
+showToast("Territory Created!");
+loadTerritories();
+}catch{showToast("Server error");}
+
+runPath=[];
+livePolygonLayer.clearLayers();
+pathLayer.clearLayers();
 }
 
+/* LOAD TERRITORIES */
+async function loadTerritories(){
+territoryLayer.clearLayers();
+try{
+const res=await fetch(`${API_BASE}/api/territories`);
+const data=await res.json();
+data.forEach(t=>{
+if(!t.geometry)return;
+L.geoJSON(t.geometry,{
+style:{
+color:'#ef4444',
+fillOpacity:0.2
+}
+}).addTo(territoryLayer);
+});
+}catch{}
+}
+
+/* STATS */
 function updateStats(){
+if(!runStartTime)return;
 const secs=Math.floor((Date.now()-runStartTime)/1000);
 const mins=Math.floor(secs/60);
 const s=secs%60;
