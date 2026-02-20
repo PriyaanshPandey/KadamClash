@@ -27,7 +27,7 @@
       touch-action: pan-x pan-y;
     }
 
-    /* ---------- MAP (fullscreen, clean, no zoom controls) ---------- */
+    /* ---------- MAP ---------- */
     #map {
       position: fixed;
       top: 0; left: 0;
@@ -44,7 +44,6 @@
       display: none !important;
     }
 
-    /* custom user marker */
     .user-marker {
       background: transparent;
     }
@@ -57,7 +56,6 @@
       border: 2.5px solid white;
     }
 
-    /* territory polygons – solid, clean lines */
     .leaflet-interactive {
       stroke-width: 4 !important;
       stroke-opacity: 1 !important;
@@ -109,7 +107,7 @@
     .menu-btn div::before { top: -6px; }
     .menu-btn div::after { top: 6px; }
 
-    /* ---------- SIDE MENU (scrollable, reordered) ---------- */
+    /* ---------- SIDE MENU ---------- */
     .menu-overlay {
       position: fixed;
       top: 0; left: 0;
@@ -139,7 +137,7 @@
       box-shadow: 10px 0 50px rgba(0,0,0,0.8);
       display: flex;
       flex-direction: column;
-      overflow-y: auto;  /* scroll if needed */
+      overflow-y: auto;
     }
 
     .side-menu.open {
@@ -185,7 +183,6 @@
       text-align: center;
     }
 
-    /* profile section – now directly after leaderboard */
     .profile-section {
       margin-top: 20px;
       border-top: 1px solid rgba(255,255,255,0.1);
@@ -199,6 +196,87 @@
       margin-top: 4px;
       display: block;
       word-break: break-word;
+    }
+
+    /* ---------- LEADERBOARD MODAL (gamified) ---------- */
+    .modal-overlay {
+      position: fixed;
+      top: 0; left: 0;
+      width: 100%; height: 100%;
+      background: rgba(0,0,0,0.7);
+      backdrop-filter: blur(8px);
+      z-index: 250;
+      display: none;
+      align-items: center;
+      justify-content: center;
+    }
+    .modal-overlay.show {
+      display: flex;
+    }
+    .leaderboard-modal {
+      background: #0f172a;
+      width: 90%;
+      max-width: 340px;
+      border-radius: 48px;
+      padding: 28px 20px;
+      border: 1px solid rgba(255,255,255,0.1);
+      box-shadow: 0 40px 60px rgba(0,0,0,0.8);
+      text-align: center;
+    }
+    .leaderboard-modal h3 {
+      font-size: 28px;
+      font-weight: 800;
+      background: linear-gradient(135deg, #fbbf24, #f59e0b);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      margin-bottom: 20px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 10px;
+    }
+    .leaderboard-list {
+      margin: 20px 0;
+    }
+    .leaderboard-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      background: rgba(255,255,255,0.05);
+      margin: 8px 0;
+      padding: 14px 18px;
+      border-radius: 60px;
+      border: 1px solid rgba(255,255,255,0.05);
+    }
+    .rank {
+      font-size: 20px;
+      font-weight: 800;
+      width: 40px;
+      text-align: left;
+    }
+    .rank-1 { color: #fbbf24; }  /* gold */
+    .rank-2 { color: #94a3b8; }  /* silver */
+    .rank-3 { color: #b45309; }  /* bronze */
+    .player-info {
+      flex: 1;
+      text-align: left;
+      font-weight: 600;
+    }
+    .player-stats {
+      font-size: 14px;
+      color: #94a3b8;
+    }
+    .modal-close {
+      background: #1e293b;
+      border: none;
+      color: white;
+      padding: 14px 30px;
+      border-radius: 60px;
+      font-size: 18px;
+      font-weight: 600;
+      margin-top: 16px;
+      cursor: pointer;
+      width: 100%;
     }
 
     /* ---------- COLLAPSIBLE BOTTOM RUN CARD ---------- */
@@ -233,18 +311,34 @@
     }
     .handle-left {
       display: flex;
-      align-items: center;
-      gap: 8px;
+      flex-direction: column;
+      gap: 4px;
     }
-    .handle-left .distance-number-small {
+    .distance-row {
+      display: flex;
+      align-items: baseline;
+      gap: 6px;
+    }
+    .distance-number-small {
       font-size: 1.8rem;
       font-weight: 700;
       color: white;
       line-height: 1;
     }
-    .handle-left .distance-unit-small {
+    .distance-unit-small {
       font-size: 1rem;
       color: #64748b;
+    }
+    .mini-stats {
+      display: flex;
+      gap: 12px;
+      font-size: 12px;
+      color: #94a3b8;
+    }
+    .mini-stats span {
+      display: flex;
+      align-items: center;
+      gap: 3px;
     }
     .handle-right {
       font-size: 24px;
@@ -388,7 +482,7 @@
       color: #6b7280;
     }
 
-    /* ---------- TOAST ---------- */
+    /* ---------- TOAST (only errors now) ---------- */
     .toast {
       position: fixed;
       top: 90px;
@@ -407,7 +501,6 @@
       font-size: 15px;
       white-space: nowrap;
     }
-    .toast.success { background: #166534; }
     .toast.error { background: #7f1d1d; }
 
     #userSelector { display: none; }
@@ -417,10 +510,21 @@
 
   <div id="map"></div>
 
+  <!-- LEADERBOARD MODAL (gamified) -->
+  <div class="modal-overlay" id="leaderboardModal">
+    <div class="leaderboard-modal">
+      <h3>🏆 LEADERBOARD</h3>
+      <div id="leaderboardList" class="leaderboard-list">
+        <!-- filled by js -->
+      </div>
+      <button class="modal-close" onclick="closeLeaderboard()">CLOSE</button>
+    </div>
+  </div>
+
   <!-- SIDE MENU OVERLAY -->
   <div class="menu-overlay" id="menuOverlay" onclick="closeMenu()"></div>
 
-  <!-- SIDE MENU – reordered: Run to Win, My Territories, Leaderboard, My Profile, then username -->
+  <!-- SIDE MENU -->
   <div class="side-menu" id="sideMenu">
     <h2>⚡ KADAM</h2>
     
@@ -433,11 +537,9 @@
     <div class="menu-item" id="menuLeaderboard">
       <span class="icon">🥇</span> Leaderboard
     </div>
-    <!-- My Profile now directly after Leaderboard -->
     <div class="menu-item" id="menuMyProfile">
       <span class="icon">👤</span> My Profile
     </div>
-    <!-- Username displayed below the profile item -->
     <div class="profile-section">
       <span id="profileUsername">(not logged in)</span>
     </div>
@@ -455,8 +557,14 @@
     <div class="run-card" id="runCard">
       <div class="card-handle" onclick="toggleCardCollapse()">
         <div class="handle-left">
-          <span class="distance-number-small" id="handleDistance">0.00</span>
-          <span class="distance-unit-small">km</span>
+          <div class="distance-row">
+            <span class="distance-number-small" id="handleDistance">0.00</span>
+            <span class="distance-unit-small">km</span>
+          </div>
+          <div class="mini-stats" id="miniStats">
+            <span>⏱️ <span id="handleDuration">00:00</span></span>
+            <span>⚡ <span id="handleSpeed">0.0</span> km/h</span>
+          </div>
         </div>
         <div class="handle-right" id="collapseChevron">▼</div>
       </div>
@@ -504,7 +612,7 @@
   <script>
     (function() {
       // --------------------------------------------------------------
-      // ORIGINAL LOGIC PRESERVED – with area computation & leaderboard
+      // ORIGINAL LOGIC – adapted: no repeated server toasts, mini stats
       // --------------------------------------------------------------
       const API_BASE = 'https://kadamclashbackend.onrender.com';
       const MOVEMENT_THRESHOLD = 5;
@@ -536,6 +644,8 @@
       const runHint = document.getElementById('runHint');
       const distanceEl = document.getElementById('distance');
       const handleDistance = document.getElementById('handleDistance');
+      const handleDuration = document.getElementById('handleDuration');
+      const handleSpeed = document.getElementById('handleSpeed');
       const durationEl = document.getElementById('duration');
       const lapsEl = document.getElementById('laps');
       const avgSpeedEl = document.getElementById('avgSpeed');
@@ -543,6 +653,10 @@
       const runStatusSpan = document.getElementById('runStatus');
       const profileUsernameSpan = document.getElementById('profileUsername');
       const toast = document.getElementById('toast');
+
+      // Leaderboard modal
+      const leaderboardModal = document.getElementById('leaderboardModal');
+      const leaderboardList = document.getElementById('leaderboardList');
 
       // Collapse state
       let isCardCollapsed = false;
@@ -555,26 +669,34 @@
         }
       };
 
-      // Helper: show toast
-      function showToast(message, type = 'info') {
+      // Helper: show toast (now only for errors, or important one-time)
+      function showToast(message, type = 'error') {
         toast.className = `toast ${type}`;
         toast.innerHTML = message;
         toast.style.display = 'flex';
         setTimeout(() => { toast.style.display = 'none'; }, 3000);
       }
 
-      // API health
+      // API health – only show errors, no repeated success
+      let lastOnline = false;
       async function checkAPI() {
         try {
           const res = await fetch(`${API_BASE}/health`);
           const data = await res.json();
-          if (data.database === 'connected') {
-            showToast('✅ Server ready', 'success');
-          } else {
+          const online = (data.database === 'connected');
+          if (!online && lastOnline) {
+            showToast('⚠️ DB issue', 'error');
+          } else if (!online) {
             showToast('⚠️ DB issue', 'error');
           }
+          lastOnline = online;
         } catch {
-          showToast('❌ Server offline', 'error');
+          if (lastOnline) {
+            showToast('❌ Server offline', 'error');
+          } else {
+            showToast('❌ Server offline', 'error');
+          }
+          lastOnline = false;
         }
       }
       checkAPI();
@@ -602,13 +724,13 @@
         document.getElementById('menuOverlay').classList.remove('visible');
       };
 
-      // Leaderboard function: aggregates territories by owner, shows top 3 by area
+      // Leaderboard function – gamified modal
       function showLeaderboard() {
         if (!territoryLayer || !territoryLayer.getLayers().length) {
-          showToast('No territories yet', 'info');
+          leaderboardList.innerHTML = '<div style="padding: 20px; color: #94a3b8;">No territories yet</div>';
+          leaderboardModal.classList.add('show');
           return;
         }
-        // Build owner stats from territory popup data (we stored in polygon)
         const ownerMap = new Map(); // ownerName -> { count, totalArea }
         territoryLayer.eachLayer(layer => {
           if (layer instanceof L.Polygon) {
@@ -626,29 +748,42 @@
         const sorted = Array.from(ownerMap.entries())
           .map(([name, stats]) => ({ name, totalArea: stats.totalArea, count: stats.count }))
           .sort((a,b) => b.totalArea - a.totalArea)
-          .slice(0, 3);
+          .slice(0, 10); // top 10
 
         if (sorted.length === 0) {
-          showToast('Leaderboard: no territories', 'info');
-          return;
+          leaderboardList.innerHTML = '<div style="padding: 20px; color: #94a3b8;">No territories</div>';
+        } else {
+          let html = '';
+          sorted.forEach((u, idx) => {
+            let rankClass = '';
+            if (idx === 0) rankClass = 'rank-1';
+            else if (idx === 1) rankClass = 'rank-2';
+            else if (idx === 2) rankClass = 'rank-3';
+            html += `
+              <div class="leaderboard-item">
+                <span class="rank ${rankClass}">#${idx+1}</span>
+                <span class="player-info">${u.name}</span>
+                <span class="player-stats">${u.totalArea.toFixed(0)} m² · ${u.count} 🗺️</span>
+              </div>
+            `;
+          });
+          leaderboardList.innerHTML = html;
         }
-
-        let msg = '🏆 Leaderboard (by area)\n';
-        sorted.forEach((u, i) => {
-          msg += `${i+1}. ${u.name} – ${u.totalArea.toFixed(0)} m² (${u.count} terr)\n`;
-        });
-        showToast(msg, 'success');
+        leaderboardModal.classList.add('show');
       }
+      window.closeLeaderboard = function() {
+        leaderboardModal.classList.remove('show');
+      };
 
       // Sidebar actions
       document.getElementById('menuRunToWin').addEventListener('click', ()=>{
-        showToast('🏆 Run to Win – start moving!', 'success');
+        showToast('🏆 Run to Win – start moving!', 'error'); // using error style as info
         closeMenu();
       });
       document.getElementById('menuMyTerritories').addEventListener('click', ()=>{
         if(selectedUserId) {
           loadTerritories();
-          showToast('🗺 Territories refreshed', 'info');
+          showToast('🗺 Territories refreshed', 'error');
         } else {
           showToast('👤 Select a profile first', 'error');
         }
@@ -682,14 +817,14 @@
           runBtn.disabled = false;
           runHint.innerText = 'Ready to run';
           runStatusSpan.innerText = 'ready';
-          showToast(`Welcome, ${selectedUsername}!`, 'success');
+          showToast(`Welcome, ${selectedUsername}!`, 'error');
           loadTerritories();
         } catch (e) {
           showToast('User creation failed', 'error');
         }
       };
 
-      // Load territories – compute area if missing, store owner name for leaderboard
+      // Load territories – compute area
       async function loadTerritories() {
         if (!selectedUserId) return;
         try {
@@ -701,7 +836,6 @@
             const coords = t.geometry.coordinates[0].map(c => [c[1], c[0]]);
             const isOwn = (t.ownerId?._id === selectedUserId || t.ownerId === selectedUserId);
             
-            // Compute area if not provided
             let area = t.area;
             if (!area && t.geometry) {
               try {
@@ -718,7 +852,7 @@
               fillColor: isOwn ? '#22c55e' : '#ef4444',
               fillOpacity: 0.45,
               interactive: true,
-              ownerName: ownerName,          // store for leaderboard
+              ownerName: ownerName,
               territoryArea: area || 0
             }).addTo(territoryLayer);
             
@@ -806,7 +940,7 @@
         }
       }
 
-      // Run logic (unchanged)
+      // Run logic
       function addPointToRun(pos, speedMs) {
         if (!runPath.length) {
           runPath.push({ lat: pos[0], lng: pos[1], timestamp: Date.now(), speed: speedMs || 0 });
@@ -831,7 +965,7 @@
                 lapCount++;
                 lapsEl.innerText = lapCount;
                 lastLapCheckPosition = pos;
-                showToast(`🏁 Lap ${lapCount}!`, 'success');
+                showToast(`🏁 Lap ${lapCount}!`, 'error');
               }
             } else {
               lapCount++;
@@ -865,10 +999,13 @@
         const secs = Math.floor((Date.now() - runStartTime) / 1000);
         const mins = Math.floor(secs/60);
         const remainingSecs = secs % 60;
-        durationEl.innerText = `${mins.toString().padStart(2,'0')}:${remainingSecs.toString().padStart(2,'0')}`;
+        const durationStr = `${mins.toString().padStart(2,'0')}:${remainingSecs.toString().padStart(2,'0')}`;
+        durationEl.innerText = durationStr;
+        handleDuration.innerText = durationStr;
         const hours = secs / 3600;
         const avg = hours > 0 ? distKm / hours : 0;
         avgSpeedEl.innerText = avg.toFixed(1);
+        handleSpeed.innerText = avg.toFixed(1);
       }
 
       window.toggleRun = function() {
@@ -899,7 +1036,7 @@
         runnerDisplay.innerHTML = `${selectedUsername} <small>running</small>`;
         addPointToRun(currentPosition, 0);
         runTimer = setInterval(() => { if (isRunning) updateRunStats(); }, 1000);
-        showToast('Run started!', 'success');
+        showToast('Run started!', 'error');
       }
 
       async function stopRun() {
@@ -940,9 +1077,9 @@
             body: JSON.stringify(payload)
           });
           const result = await res.json();
-          if (result.created) showToast('✨ New territory created!', 'success');
-          else if (result.captured) showToast('⚔️ Territory CAPTURED!', 'success');
-          else showToast('🏃 Run recorded', 'info');
+          if (result.created) showToast('✨ New territory created!', 'error');
+          else if (result.captured) showToast('⚔️ Territory CAPTURED!', 'error');
+          else showToast('🏃 Run recorded', 'error');
           loadTerritories();
         } catch (err) {
           showToast('Error submitting run: ' + err.message, 'error');
@@ -957,8 +1094,10 @@
         distanceEl.innerText = '0.00';
         handleDistance.innerText = '0.00';
         durationEl.innerText = '00:00';
+        handleDuration.innerText = '00:00';
         lapsEl.innerText = '0';
         avgSpeedEl.innerText = '0.0';
+        handleSpeed.innerText = '0.0';
         runBtn.disabled = false;
         runHint.innerText = 'Ready';
         runStatusSpan.innerText = 'ready';
