@@ -482,7 +482,7 @@
       color: #6b7280;
     }
 
-    /* ---------- TOAST (only errors now) ---------- */
+    /* ---------- TOAST (info style) ---------- */
     .toast {
       position: fixed;
       top: 90px;
@@ -501,7 +501,9 @@
       font-size: 15px;
       white-space: nowrap;
     }
+    .toast.success { background: #166534; }
     .toast.error { background: #7f1d1d; }
+    .toast.info { background: #1e293b; }
 
     #userSelector { display: none; }
   </style>
@@ -510,14 +512,12 @@
 
   <div id="map"></div>
 
-  <!-- LEADERBOARD MODAL (gamified) -->
+  <!-- LEADERBOARD MODAL -->
   <div class="modal-overlay" id="leaderboardModal">
     <div class="leaderboard-modal">
       <h3>🏆 LEADERBOARD</h3>
-      <div id="leaderboardList" class="leaderboard-list">
-        <!-- filled by js -->
-      </div>
-      <button class="modal-close" onclick="closeLeaderboard()">CLOSE</button>
+      <div id="leaderboardList" class="leaderboard-list"></div>
+      <button class="modal-close" id="closeLeaderboardBtn">CLOSE</button>
     </div>
   </div>
 
@@ -612,12 +612,12 @@
   <script>
     (function() {
       // --------------------------------------------------------------
-      // ORIGINAL LOGIC – adapted: no repeated server toasts, mini stats
+      // TERRITORY CAPTURE – FIXED BUFFER 25m, DETAILED MESSAGES
       // --------------------------------------------------------------
       const API_BASE = 'https://kadamclashbackend.onrender.com';
       const MOVEMENT_THRESHOLD = 5;
       const LAP_RADIUS = 50;
-      const TERRITORY_BUFFER = 10;
+      const TERRITORY_BUFFER = 25; // 25 meters for reliable 70% overlap
 
       let map;
       let currentPosition = null;
@@ -657,6 +657,7 @@
       // Leaderboard modal
       const leaderboardModal = document.getElementById('leaderboardModal');
       const leaderboardList = document.getElementById('leaderboardList');
+      const closeLeaderboardBtn = document.getElementById('closeLeaderboardBtn');
 
       // Collapse state
       let isCardCollapsed = false;
@@ -669,15 +670,15 @@
         }
       };
 
-      // Helper: show toast (now only for errors, or important one-time)
-      function showToast(message, type = 'error') {
+      // Helper: show toast (with types)
+      function showToast(message, type = 'info') {
         toast.className = `toast ${type}`;
         toast.innerHTML = message;
         toast.style.display = 'flex';
-        setTimeout(() => { toast.style.display = 'none'; }, 3000);
+        setTimeout(() => { toast.style.display = 'none'; }, 4000);
       }
 
-      // API health – only show errors, no repeated success
+      // API health – only show errors
       let lastOnline = false;
       async function checkAPI() {
         try {
@@ -748,7 +749,7 @@
         const sorted = Array.from(ownerMap.entries())
           .map(([name, stats]) => ({ name, totalArea: stats.totalArea, count: stats.count }))
           .sort((a,b) => b.totalArea - a.totalArea)
-          .slice(0, 10); // top 10
+          .slice(0, 10);
 
         if (sorted.length === 0) {
           leaderboardList.innerHTML = '<div style="padding: 20px; color: #94a3b8;">No territories</div>';
@@ -771,19 +772,26 @@
         }
         leaderboardModal.classList.add('show');
       }
+
+      // Close leaderboard
       window.closeLeaderboard = function() {
         leaderboardModal.classList.remove('show');
       };
+      closeLeaderboardBtn.addEventListener('click', closeLeaderboard);
+      // Optional: close on overlay click
+      leaderboardModal.addEventListener('click', (e) => {
+        if (e.target === leaderboardModal) closeLeaderboard();
+      });
 
       // Sidebar actions
       document.getElementById('menuRunToWin').addEventListener('click', ()=>{
-        showToast('🏆 Run to Win – start moving!', 'error'); // using error style as info
+        showToast('🏆 Run to Win – start moving!', 'info');
         closeMenu();
       });
       document.getElementById('menuMyTerritories').addEventListener('click', ()=>{
         if(selectedUserId) {
           loadTerritories();
-          showToast('🗺 Territories refreshed', 'error');
+          showToast('🗺 Territories refreshed', 'info');
         } else {
           showToast('👤 Select a profile first', 'error');
         }
@@ -817,14 +825,24 @@
           runBtn.disabled = false;
           runHint.innerText = 'Ready to run';
           runStatusSpan.innerText = 'ready';
-          showToast(`Welcome, ${selectedUsername}!`, 'error');
+          showToast(`Welcome, ${selectedUsername}!`, 'success');
           loadTerritories();
         } catch (e) {
           showToast('User creation failed', 'error');
         }
       };
 
-      // Load territories – compute area
+      // Generate color from username (hash)
+      function stringToColor(str) {
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) {
+          hash = str.charCodeAt(i) + ((hash << 5) - hash);
+        }
+        const hue = Math.abs(hash % 360);
+        return `hsl(${hue}, 70%, 55%)`; // bright, distinct
+      }
+
+      // Load territories – compute area if missing, assign colors
       async function loadTerritories() {
         if (!selectedUserId) return;
         try {
@@ -834,7 +852,8 @@
           territories.forEach(t => {
             if (!t.geometry || !t.geometry.coordinates) return;
             const coords = t.geometry.coordinates[0].map(c => [c[1], c[0]]);
-            const isOwn = (t.ownerId?._id === selectedUserId || t.ownerId === selectedUserId);
+            const ownerId = t.ownerId?._id || t.ownerId;
+            const isOwn = (ownerId === selectedUserId);
             
             let area = t.area;
             if (!area && t.geometry) {
@@ -846,10 +865,13 @@
             const bestTime = t.bestTime ? t.bestTime.toFixed(1) : 'N/A';
             const ownerName = t.ownerId?.username || 'Unknown';
             
+            // Color: own = green, others = hash based
+            const fillColor = isOwn ? '#22c55e' : stringToColor(ownerName);
+            
             const polygon = L.polygon(coords, {
-              color: isOwn ? '#22c55e' : '#ef4444',
+              color: fillColor,
               weight: 4,
-              fillColor: isOwn ? '#22c55e' : '#ef4444',
+              fillColor: fillColor,
               fillOpacity: 0.45,
               interactive: true,
               ownerName: ownerName,
@@ -857,7 +879,7 @@
             }).addTo(territoryLayer);
             
             polygon.bindPopup(`
-              <b>${isOwn ? 'YOUR' : 'ENEMY'} TERRITORY</b><br>
+              <b>${isOwn ? 'YOUR' : ownerName}'s TERRITORY</b><br>
               Owner: ${ownerName}<br>
               Area: ${area ? area.toFixed(0) : 'N/A'} m²<br>
               Best lap: ${bestTime} s
@@ -965,7 +987,7 @@
                 lapCount++;
                 lapsEl.innerText = lapCount;
                 lastLapCheckPosition = pos;
-                showToast(`🏁 Lap ${lapCount}!`, 'error');
+                showToast(`🏁 Lap ${lapCount}!`, 'info');
               }
             } else {
               lapCount++;
@@ -1036,7 +1058,7 @@
         runnerDisplay.innerHTML = `${selectedUsername} <small>running</small>`;
         addPointToRun(currentPosition, 0);
         runTimer = setInterval(() => { if (isRunning) updateRunStats(); }, 1000);
-        showToast('Run started!', 'error');
+        showToast('Run started!', 'info');
       }
 
       async function stopRun() {
@@ -1057,8 +1079,14 @@
         try {
           const lineCoords = runPath.map(p => [p.lng, p.lat]);
           const line = turf.lineString(lineCoords);
+          // Buffer 25m for reliable overlap
           const buffered = turf.buffer(line, TERRITORY_BUFFER, { units: 'meters' });
           if (!buffered || !buffered.geometry) throw new Error('Buffer failed');
+          
+          // Validate polygon has area
+          const area = turf.area(buffered);
+          if (area < 1) throw new Error('Buffered area too small');
+
           const duration = Math.floor((Date.now() - runStartTime) / 1000);
           const totalDistM = runPath.slice(1).reduce((acc, _, i) => {
             return acc + calculateDistance([runPath[i].lat, runPath[i].lng], [runPath[i+1].lat, runPath[i+1].lng]);
@@ -1071,18 +1099,36 @@
             laps: lapCount || 1,
             avgSpeed: avgSpeed || 0
           };
+
+          console.log('Submitting run:', JSON.stringify(payload, null, 2));
+
           const res = await fetch(`${API_BASE}/api/run`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify(payload)
           });
           const result = await res.json();
-          if (result.created) showToast('✨ New territory created!', 'error');
-          else if (result.captured) showToast('⚔️ Territory CAPTURED!', 'error');
-          else showToast('🏃 Run recorded', 'error');
-          loadTerritories();
+          console.log('Run result:', result);
+
+          // Show detailed message based on result
+          if (result.created) {
+            showToast('✨ New territory created!', 'success');
+          } else if (result.captured) {
+            // We need to know who was defeated. The backend doesn't send previous owner.
+            // We can guess from the territory that was intersected (but we don't know which one).
+            // For simplicity, show generic victory.
+            showToast('⚔️ You captured an enemy territory!', 'success');
+          } else {
+            // Possibly failed battle – we can try to retrieve the territory that was defended
+            // For now, generic message.
+            showToast('🏃 Run recorded (no capture)', 'info');
+          }
+
+          // Force reload territories to reflect ownership changes
+          await loadTerritories();
         } catch (err) {
-          showToast('Error submitting run: ' + err.message, 'error');
+          showToast('Error: ' + err.message, 'error');
+          console.error(err);
         } finally {
           resetRunUI();
         }
