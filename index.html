@@ -1,377 +1,366 @@
 <!DOCTYPE html>
 <html lang="en">
 <head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>Kadam Clash – Territory Runner</title>
-    <!-- Leaflet & Turf -->
-    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css" />
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
-    <style>
-        * {
-            margin: 0;
-            padding: 0;
-            box-sizing: border-box;
-            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, sans-serif;
-        }
-        body {
-            background: #0b1120;
-            height: 100vh;
-            overflow: hidden;
-            color: white;
-        }
-        #map {
-            height: 100vh;
-            width: 100vw;
-            position: fixed;
-            top: 0;
-            left: 0;
-            z-index: 1;
-        }
-        /* Top bars */
-        .top-bar {
-            position: fixed;
-            top: 12px;
-            left: 12px;
-            right: 12px;
-            z-index: 10;
-            display: flex;
-            gap: 8px;
-            justify-content: space-between;
-            pointer-events: none;
-        }
-        .location-chip {
-            background: rgba(10, 20, 40, 0.85);
-            backdrop-filter: blur(8px);
-            padding: 10px 18px;
-            border-radius: 40px;
-            font-size: 14px;
-            font-weight: 500;
-            border: 1px solid rgba(255,255,255,0.15);
-            box-shadow: 0 8px 20px rgba(0,0,0,0.5);
-            pointer-events: auto;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-            color: white;
-            max-width: 60%;
-            overflow: hidden;
-            text-overflow: ellipsis;
-            white-space: nowrap;
-        }
-        .status-chip {
-            background: rgba(0,0,0,0.6);
-            backdrop-filter: blur(8px);
-            padding: 10px 18px;
-            border-radius: 40px;
-            font-size: 14px;
-            font-weight: 500;
-            border: 1px solid rgba(255,255,255,0.1);
-            pointer-events: auto;
-            display: flex;
-            align-items: center;
-            gap: 8px;
-        }
-        .status-chip.online {
-            background: #1b5e2a;
-            border-color: #4caf50;
-        }
-        .runner-selector {
-            position: fixed;
-            top: 12px;
-            right: 12px;
-            z-index: 10;
-            background: white;
-            border-radius: 40px;
-            padding: 4px;
-            box-shadow: 0 10px 25px rgba(0,0,0,0.4);
-            pointer-events: auto;
-        }
-        .runner-btn {
-            background: transparent;
-            border: none;
-            padding: 10px 24px;
-            border-radius: 40px;
-            font-weight: 600;
-            font-size: 15px;
-            color: #1e293b;
-            cursor: pointer;
-            transition: 0.2s;
-        }
-        .runner-btn.active {
-            background: #3b82f6;
-            color: white;
-            box-shadow: 0 4px 10px rgba(59,130,246,0.3);
-        }
-        /* Legend */
-        .legend-panel {
-            position: fixed;
-            bottom: 140px;
-            right: 12px;
-            z-index: 9;
-            background: rgba(15, 23, 42, 0.9);
-            backdrop-filter: blur(8px);
-            padding: 16px;
-            border-radius: 20px;
-            border: 1px solid #334155;
-            font-size: 13px;
-            color: #e2e8f0;
-            width: 180px;
-            box-shadow: 0 15px 30px rgba(0,0,0,0.6);
-            pointer-events: none;
-        }
-        .legend-item {
-            display: flex;
-            align-items: center;
-            gap: 10px;
-            margin: 8px 0;
-        }
-        .color-swatch {
-            width: 22px;
-            height: 22px;
-            border-radius: 6px;
-        }
-        .swatch-own { background: #22c55e; border: 2px solid #86efac; }
-        .swatch-other { background: #ef4444; border: 2px solid #fca5a5; }
-        .swatch-path { background: #3b82f6; border: 2px solid #93c5fd; }
-        /* Run card */
-        .run-card-container {
-            position: fixed;
-            bottom: 16px;
-            left: 16px;
-            right: 16px;
-            z-index: 20;
-            display: flex;
-            justify-content: center;
-            pointer-events: none;
-        }
-        .run-card {
-            background: rgba(255,255,255,0.98);
-            backdrop-filter: blur(12px);
-            border-radius: 36px;
-            padding: 22px 20px;
-            width: 100%;
-            max-width: 440px;
-            box-shadow: 0 25px 50px -8px black;
-            color: #0f172a;
-            pointer-events: auto;
-            transition: background 0.2s, border 0.2s;
-            border: 1px solid #cbd5e1;
-        }
-        .run-card.running {
-            background: #1e3a5f;
-            color: white;
-            border-color: #60a5fa;
-        }
-        .runner-name {
-            text-align: center;
-            font-size: 22px;
-            font-weight: 700;
-            margin-bottom: 20px;
-            letter-spacing: -0.3px;
-        }
-        .stats-grid {
-            display: grid;
-            grid-template-columns: 1fr 1fr;
-            gap: 16px 20px;
-            margin: 10px 0 20px;
-        }
-        .stat-cell {
-            text-align: center;
-        }
-        .stat-label {
-            font-size: 13px;
-            opacity: 0.7;
-            text-transform: uppercase;
-            letter-spacing: 0.5px;
-        }
-        .stat-number {
-            font-size: 32px;
-            font-weight: 800;
-            line-height: 1.2;
-        }
-        .stat-unit {
-            font-size: 12px;
-            opacity: 0.6;
-            margin-left: 2px;
-        }
-        .run-action-btn {
-            background: #3b82f6;
-            border: none;
-            color: white;
-            font-weight: 700;
-            font-size: 20px;
-            padding: 18px;
-            border-radius: 60px;
-            width: 100%;
-            cursor: pointer;
-            transition: 0.2s;
-            box-shadow: 0 10px 25px #3b82f680;
-        }
-        .run-action-btn.running {
-            background: #dc2626;
-            box-shadow: 0 10px 25px #dc262680;
-        }
-        .run-action-btn:disabled {
-            background: #94a3b8;
-            box-shadow: none;
-            cursor: not-allowed;
-        }
-        .hint-text {
-            text-align: center;
-            font-size: 13px;
-            margin-top: 12px;
-            opacity: 0.7;
-        }
-        /* Instruction accordion */
-        .info-toggle {
-            position: fixed;
-            bottom: 100px;
-            left: 16px;
-            z-index: 15;
-            background: #0f172a;
-            color: white;
-            border: none;
-            padding: 10px 18px;
-            border-radius: 40px;
-            font-size: 14px;
-            font-weight: 500;
-            backdrop-filter: blur(8px);
-            border: 1px solid #334155;
-            cursor: pointer;
-            box-shadow: 0 5px 15px black;
-        }
-        .info-panel {
-            position: fixed;
-            bottom: 160px;
-            left: 16px;
-            right: 16px;
-            max-width: 400px;
-            background: rgba(15,23,42,0.95);
-            backdrop-filter: blur(12px);
-            border-radius: 28px;
-            padding: 20px;
-            color: #f1f5f9;
-            border: 1px solid #3b82f6;
-            z-index: 19;
-            display: none;
-            box-shadow: 0 25px 40px black;
-        }
-        .info-panel.show {
-            display: block;
-        }
-        .info-panel h3 {
-            margin-bottom: 12px;
-            color: #93c5fd;
-        }
-        .info-panel p {
-            font-size: 14px;
-            line-height: 1.5;
-            margin-bottom: 8px;
-        }
-        .toast {
-            position: fixed;
-            top: 80px;
-            left: 50%;
-            transform: translateX(-50%);
-            background: #0f172a;
-            color: white;
-            padding: 14px 30px;
-            border-radius: 60px;
-            font-weight: 600;
-            box-shadow: 0 20px 30px black;
-            z-index: 100;
-            display: none;
-            align-items: center;
-            gap: 10px;
-            border: 1px solid #3b82f6;
-            white-space: nowrap;
-        }
-        .toast.success { background: #166534; border-color: #4ade80; }
-        .toast.error { background: #991b1b; border-color: #f87171; }
-        .loading-spinner {
-            display: inline-block;
-            width: 18px;
-            height: 18px;
-            border: 3px solid rgba(255,255,255,0.3);
-            border-radius: 50%;
-            border-top-color: white;
-            animation: spin 0.8s linear infinite;
-        }
-        @keyframes spin { to { transform: rotate(360deg); } }
-    </style>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Kadam Clash – Territory Runner</title>
+
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css"/>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
+
+<style>
+
+/* =========================
+   GLOBAL – MOBILE FIRST
+========================= */
+
+*{
+margin:0;
+padding:0;
+box-sizing:border-box;
+font-family:-apple-system,BlinkMacSystemFont,'Segoe UI',Roboto,sans-serif;
+}
+
+body{
+background:#0b0f1a;
+color:white;
+overflow:hidden;
+height:100vh;
+}
+
+/* =========================
+   MAP – MAIN HERO
+========================= */
+
+#map{
+position:fixed;
+top:0;
+left:0;
+height:100vh;
+width:100vw;
+z-index:1;
+filter:saturate(1.1) contrast(1.05);
+}
+
+/* Darker tiles */
+.leaflet-tile{
+filter:brightness(0.7) contrast(1.2) saturate(0.8);
+}
+
+/* =========================
+   TOP GLASS BAR
+========================= */
+
+.top-bar{
+position:fixed;
+top:14px;
+left:14px;
+right:14px;
+z-index:50;
+display:flex;
+justify-content:space-between;
+align-items:center;
+pointer-events:none;
+}
+
+.glass-chip{
+background:rgba(15,23,42,0.85);
+backdrop-filter:blur(16px);
+border:1px solid rgba(255,255,255,0.08);
+border-radius:50px;
+padding:10px 16px;
+font-size:13px;
+font-weight:500;
+display:flex;
+align-items:center;
+gap:8px;
+pointer-events:auto;
+box-shadow:0 10px 30px rgba(0,0,0,0.6);
+}
+
+.status-chip.online{
+background:#052e1a;
+border-color:#22c55e;
+}
+
+/* =========================
+   HAMBURGER MENU
+========================= */
+
+.menu-btn{
+width:42px;
+height:42px;
+border-radius:50%;
+background:rgba(15,23,42,0.9);
+backdrop-filter:blur(12px);
+display:flex;
+align-items:center;
+justify-content:center;
+cursor:pointer;
+pointer-events:auto;
+border:1px solid rgba(255,255,255,0.08);
+box-shadow:0 10px 25px rgba(0,0,0,0.6);
+}
+
+.menu-btn div{
+width:18px;
+height:2px;
+background:white;
+position:relative;
+}
+.menu-btn div::before,
+.menu-btn div::after{
+content:"";
+position:absolute;
+width:18px;
+height:2px;
+background:white;
+left:0;
+}
+.menu-btn div::before{ top:-6px; }
+.menu-btn div::after{ top:6px; }
+
+.side-menu{
+position:fixed;
+top:0;
+left:-280px;
+height:100vh;
+width:260px;
+background:#0f172a;
+z-index:100;
+padding:28px 20px;
+transition:0.3s;
+box-shadow:0 0 40px black;
+display:flex;
+flex-direction:column;
+}
+
+.side-menu.open{
+left:0;
+}
+
+.side-menu h2{
+font-size:18px;
+margin-bottom:25px;
+color:#22c55e;
+}
+
+.menu-item{
+padding:14px 10px;
+border-radius:12px;
+font-size:15px;
+margin-bottom:10px;
+cursor:pointer;
+transition:0.2s;
+}
+
+.menu-item:hover{
+background:#1e293b;
+}
+
+/* =========================
+   RUN CARD (BOTTOM)
+========================= */
+
+.run-card-container{
+position:fixed;
+bottom:0;
+left:0;
+right:0;
+z-index:60;
+padding:18px;
+pointer-events:none;
+}
+
+.run-card{
+background:linear-gradient(180deg,#111827 0%,#0f172a 100%);
+border-radius:28px;
+padding:22px 20px 26px;
+box-shadow:0 -10px 40px rgba(0,0,0,0.9);
+pointer-events:auto;
+border:1px solid rgba(255,255,255,0.06);
+}
+
+.runner-name{
+text-align:center;
+font-size:18px;
+font-weight:600;
+margin-bottom:18px;
+color:#22c55e;
+}
+
+.stats-grid{
+display:grid;
+grid-template-columns:1fr 1fr;
+gap:18px 12px;
+margin-bottom:20px;
+}
+
+.stat-cell{
+text-align:center;
+}
+
+.stat-label{
+font-size:11px;
+letter-spacing:1px;
+text-transform:uppercase;
+opacity:0.6;
+}
+
+.stat-number{
+font-size:28px;
+font-weight:800;
+margin-top:4px;
+}
+
+.stat-unit{
+font-size:11px;
+opacity:0.6;
+margin-left:2px;
+}
+
+.run-action-btn{
+width:100%;
+padding:16px;
+border:none;
+border-radius:50px;
+font-size:18px;
+font-weight:700;
+cursor:pointer;
+background:linear-gradient(90deg,#22c55e,#16a34a);
+color:#0b1120;
+box-shadow:0 10px 30px rgba(34,197,94,0.4);
+transition:0.2s;
+}
+
+.run-action-btn.running{
+background:linear-gradient(90deg,#ef4444,#dc2626);
+color:white;
+box-shadow:0 10px 30px rgba(239,68,68,0.4);
+}
+
+.hint-text{
+text-align:center;
+margin-top:10px;
+font-size:12px;
+opacity:0.6;
+}
+
+/* =========================
+   TOAST
+========================= */
+
+.toast{
+position:fixed;
+top:80px;
+left:50%;
+transform:translateX(-50%);
+background:#111827;
+padding:14px 22px;
+border-radius:50px;
+font-weight:600;
+display:none;
+z-index:200;
+box-shadow:0 20px 40px black;
+}
+
+.toast.success{ background:#065f46; }
+.toast.error{ background:#7f1d1d; }
+
+/* =========================
+   MOBILE OPTIMIZATION
+========================= */
+
+@media(min-width:768px){
+.run-card{
+max-width:460px;
+margin:auto;
+}
+}
+
+</style>
 </head>
+
 <body>
-    <div id="map"></div>
 
-    <!-- Top bar -->
-    <div class="top-bar">
-        <div class="location-chip" id="locationInfo">
-            <span class="loading-spinner"></span> Acquiring GPS...
-        </div>
-        <div class="status-chip" id="apiStatus">
-            <span class="loading-spinner"></span> Connecting
-        </div>
-    </div>
+<div id="map"></div>
 
-    <!-- Runner selector -->
-    <div class="runner-selector" id="userSelector">
-        <button class="runner-btn" onclick="selectRunner()">👤 Select runner</button>
-    </div>
+<!-- SIDE MENU -->
+<div class="side-menu" id="sideMenu">
+<h2>Kadam Clash</h2>
+<div class="menu-item">🏆 Run to Win</div>
+<div class="menu-item">🗺 My Territories</div>
+<div class="menu-item">🥇 Leaderboard</div>
+<div class="menu-item" onclick="selectRunner()">👤 My Profile</div>
+</div>
 
-    <!-- Legend -->
-    <div class="legend-panel">
-        <div class="legend-item"><span class="color-swatch swatch-own"></span> Your territory</div>
-        <div class="legend-item"><span class="color-swatch swatch-other"></span> Enemy territory</div>
-        <div class="legend-item"><span class="color-swatch swatch-path"></span> Current run</div>
-    </div>
+<!-- TOP BAR -->
+<div class="top-bar">
+<div class="menu-btn" onclick="toggleMenu()">
+<div></div>
+</div>
 
-    <!-- Info button & panel -->
-    <button class="info-toggle" id="infoToggle">📘 How to play</button>
-    <div class="info-panel" id="infoPanel">
-        <h3>🏃‍♂️ Kadam Clash</h3>
-        <p>• Select a runner name (top‑right).</p>
-        <p>• Press <strong>Start Run</strong> and move. Your path will be buffered into a territory.</p>
-        <p>• Run over enemy territories to capture them.</p>
-        <p>• <strong>Laps</strong> are counted when you return near your start (50 m).</p>
-        <p>• GPS must be high accuracy. Stay outdoors.</p>
-        <p><small>Tip: move at least 5 m between points to avoid drift.</small></p>
-    </div>
+<div class="glass-chip" id="locationInfo">
+📡 Acquiring GPS...
+</div>
 
-    <!-- Main run card -->
-    <div class="run-card-container">
-        <div class="run-card" id="runCard">
-            <div class="runner-name" id="runnerDisplay">🏃 Start</div>
-            <div class="stats-grid">
-                <div class="stat-cell">
-                    <div class="stat-label">Distance</div>
-                    <div class="stat-number" id="distance">0.00</div>
-                    <span class="stat-unit">km</span>
-                </div>
-                <div class="stat-cell">
-                    <div class="stat-label">Duration</div>
-                    <div class="stat-number" id="duration">00:00</div>
-                </div>
-                <div class="stat-cell">
-                    <div class="stat-label">Laps</div>
-                    <div class="stat-number" id="laps">0</div>
-                </div>
-                <div class="stat-cell">
-                    <div class="stat-label">Speed</div>
-                    <div class="stat-number" id="avgSpeed">0.0</div>
-                    <span class="stat-unit">km/h</span>
-                </div>
-            </div>
-            <button class="run-action-btn" id="runBtn" onclick="toggleRun()" disabled>▶️ Start Run</button>
-            <div class="hint-text" id="runHint">Select a runner to begin</div>
-        </div>
-    </div>
+<div class="glass-chip status-chip" id="apiStatus">
+Connecting...
+</div>
+</div>
 
-    <!-- Toast container -->
-    <div id="toast" class="toast"></div>
+<!-- RUN CARD -->
+<div class="run-card-container">
+<div class="run-card" id="runCard">
 
-    <script>
+<div class="runner-name" id="runnerDisplay">🏃 Start Running</div>
+
+<div class="stats-grid">
+<div class="stat-cell">
+<div class="stat-label">Distance</div>
+<div class="stat-number" id="distance">0.00</div>
+<span class="stat-unit">km</span>
+</div>
+
+<div class="stat-cell">
+<div class="stat-label">Duration</div>
+<div class="stat-number" id="duration">00:00</div>
+</div>
+
+<div class="stat-cell">
+<div class="stat-label">Laps</div>
+<div class="stat-number" id="laps">0</div>
+</div>
+
+<div class="stat-cell">
+<div class="stat-label">Speed</div>
+<div class="stat-number" id="avgSpeed">0.0</div>
+<span class="stat-unit">km/h</span>
+</div>
+</div>
+
+<button class="run-action-btn" id="runBtn" onclick="toggleRun()" disabled>
+▶ Start Run
+</button>
+
+<div class="hint-text" id="runHint">
+Select profile to begin
+</div>
+
+</div>
+</div>
+
+<div id="toast" class="toast"></div>
+
+<script>
+
+/* Only minimal new logic for menu toggle */
+
+function toggleMenu(){
+document.getElementById("sideMenu").classList.toggle("open");
+}
+
         (function() {
             // --------------------------------------------------------------
             // Configuration
