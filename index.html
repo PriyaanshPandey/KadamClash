@@ -109,7 +109,7 @@
     .menu-btn div::before { top: -6px; }
     .menu-btn div::after { top: 6px; }
 
-    /* ---------- SIDE MENU (scrollable on small screens) ---------- */
+    /* ---------- SIDE MENU (scrollable, reordered) ---------- */
     .menu-overlay {
       position: fixed;
       top: 0; left: 0;
@@ -139,7 +139,7 @@
       box-shadow: 10px 0 50px rgba(0,0,0,0.8);
       display: flex;
       flex-direction: column;
-      overflow-y: auto;  /* enable scrolling if content overflows */
+      overflow-y: auto;  /* scroll if needed */
     }
 
     .side-menu.open {
@@ -185,28 +185,18 @@
       text-align: center;
     }
 
-    .profile-row {
-      margin-top: auto;
+    /* profile section – now directly after leaderboard */
+    .profile-section {
+      margin-top: 20px;
       border-top: 1px solid rgba(255,255,255,0.1);
       padding-top: 20px;
-      flex-direction: column;
-      align-items: flex-start;
-      gap: 6px;
-      flex-shrink: 0;
     }
-
-    .profile-row .menu-item {
-      width: 100%;
-      margin-bottom: 0;
-    }
-
     #profileUsername {
       font-size: 15px;
       color: #22c55e;
       font-weight: 600;
       margin-left: 48px;
-      margin-top: -8px;
-      margin-bottom: 12px;
+      margin-top: 4px;
       display: block;
       word-break: break-word;
     }
@@ -226,14 +216,13 @@
       backdrop-filter: blur(30px);
       -webkit-backdrop-filter: blur(30px);
       border-radius: 34px;
-      padding: 0; /* padding controlled by inner */
+      padding: 0;
       border: 1px solid rgba(255,255,255,0.08);
       box-shadow: 0 20px 40px -8px black;
       pointer-events: auto;
       transition: all 0.3s ease;
     }
 
-    /* card handle (always visible) */
     .card-handle {
       display: flex;
       align-items: center;
@@ -265,7 +254,7 @@
     .card-content {
       overflow: hidden;
       transition: max-height 0.3s ease;
-      max-height: 500px; /* expanded */
+      max-height: 500px;
       padding: 0 20px 22px 20px;
     }
     .run-card.collapsed .card-content {
@@ -276,7 +265,6 @@
       transform: rotate(180deg);
     }
 
-    /* runner row */
     .runner-row {
       display: flex;
       align-items: center;
@@ -303,7 +291,6 @@
       font-weight: 500;
     }
 
-    /* distance (inside expanded) – hidden when collapsed */
     .distance-compact {
       text-align: left;
       margin: 4px 0 8px;
@@ -322,7 +309,6 @@
       margin-left: 6px;
     }
 
-    /* location line */
     .location-line {
       display: flex;
       align-items: center;
@@ -339,7 +325,6 @@
       box-shadow: 0 0 8px #22c55e;
     }
 
-    /* three stats row */
     .stats-row {
       display: flex;
       justify-content: space-between;
@@ -371,7 +356,6 @@
       margin-left: 2px;
     }
 
-    /* CTA button */
     .run-action-btn {
       width: 100%;
       padding: 18px;
@@ -436,7 +420,7 @@
   <!-- SIDE MENU OVERLAY -->
   <div class="menu-overlay" id="menuOverlay" onclick="closeMenu()"></div>
 
-  <!-- SIDE MENU -->
+  <!-- SIDE MENU – reordered: Run to Win, My Territories, Leaderboard, My Profile, then username -->
   <div class="side-menu" id="sideMenu">
     <h2>⚡ KADAM</h2>
     
@@ -449,12 +433,12 @@
     <div class="menu-item" id="menuLeaderboard">
       <span class="icon">🥇</span> Leaderboard
     </div>
-
-    <!-- Profile section -->
-    <div class="profile-row">
-      <div class="menu-item" id="menuMyProfile">
-        <span class="icon">👤</span> My Profile
-      </div>
+    <!-- My Profile now directly after Leaderboard -->
+    <div class="menu-item" id="menuMyProfile">
+      <span class="icon">👤</span> My Profile
+    </div>
+    <!-- Username displayed below the profile item -->
+    <div class="profile-section">
       <span id="profileUsername">(not logged in)</span>
     </div>
   </div>
@@ -469,7 +453,6 @@
   <!-- COLLAPSIBLE BOTTOM RUN CARD -->
   <div class="run-card-container">
     <div class="run-card" id="runCard">
-      <!-- Handle (always visible) -->
       <div class="card-handle" onclick="toggleCardCollapse()">
         <div class="handle-left">
           <span class="distance-number-small" id="handleDistance">0.00</span>
@@ -477,24 +460,19 @@
         </div>
         <div class="handle-right" id="collapseChevron">▼</div>
       </div>
-      <!-- Expandable content -->
       <div class="card-content" id="cardContent">
         <div class="runner-row">
           <span class="runner-name" id="runnerDisplay">Start <small>runner</small></span>
           <span class="runner-status" id="runStatus">idle</span>
         </div>
-
-        <!-- big distance (duplicate for expanded view) -->
         <div class="distance-compact">
           <span class="distance-number" id="distance">0.00</span>
           <span class="distance-unit">km</span>
         </div>
-
         <div class="location-line">
           <span class="dot"></span>
           <span id="runLocation">acquiring GPS…</span>
         </div>
-
         <div class="stats-row">
           <div class="stat-item">
             <div class="stat-label">DURATION</div>
@@ -510,7 +488,6 @@
             <span class="stat-unit">km/h</span>
           </div>
         </div>
-
         <button class="run-action-btn" id="runBtn" onclick="toggleRun()" disabled>
           ▶ START RUN
         </button>
@@ -527,7 +504,7 @@
   <script>
     (function() {
       // --------------------------------------------------------------
-      // ORIGINAL LOGIC PRESERVED – only UI additions (collapsible card)
+      // ORIGINAL LOGIC PRESERVED – with area computation & leaderboard
       // --------------------------------------------------------------
       const API_BASE = 'https://kadamclashbackend.onrender.com';
       const MOVEMENT_THRESHOLD = 5;
@@ -625,6 +602,44 @@
         document.getElementById('menuOverlay').classList.remove('visible');
       };
 
+      // Leaderboard function: aggregates territories by owner, shows top 3 by area
+      function showLeaderboard() {
+        if (!territoryLayer || !territoryLayer.getLayers().length) {
+          showToast('No territories yet', 'info');
+          return;
+        }
+        // Build owner stats from territory popup data (we stored in polygon)
+        const ownerMap = new Map(); // ownerName -> { count, totalArea }
+        territoryLayer.eachLayer(layer => {
+          if (layer instanceof L.Polygon) {
+            const owner = layer.options.ownerName || 'unknown';
+            const area = layer.options.territoryArea || 0;
+            if (!ownerMap.has(owner)) {
+              ownerMap.set(owner, { count: 0, totalArea: 0 });
+            }
+            const stats = ownerMap.get(owner);
+            stats.count += 1;
+            stats.totalArea += area;
+          }
+        });
+
+        const sorted = Array.from(ownerMap.entries())
+          .map(([name, stats]) => ({ name, totalArea: stats.totalArea, count: stats.count }))
+          .sort((a,b) => b.totalArea - a.totalArea)
+          .slice(0, 3);
+
+        if (sorted.length === 0) {
+          showToast('Leaderboard: no territories', 'info');
+          return;
+        }
+
+        let msg = '🏆 Leaderboard (by area)\n';
+        sorted.forEach((u, i) => {
+          msg += `${i+1}. ${u.name} – ${u.totalArea.toFixed(0)} m² (${u.count} terr)\n`;
+        });
+        showToast(msg, 'success');
+      }
+
       // Sidebar actions
       document.getElementById('menuRunToWin').addEventListener('click', ()=>{
         showToast('🏆 Run to Win – start moving!', 'success');
@@ -640,7 +655,7 @@
         closeMenu();
       });
       document.getElementById('menuLeaderboard').addEventListener('click', ()=>{
-        showToast('🥇 Leaderboard coming soon', 'info');
+        showLeaderboard();
         closeMenu();
       });
       document.getElementById('menuMyProfile').addEventListener('click', ()=>{
@@ -674,7 +689,7 @@
         }
       };
 
-      // Load territories
+      // Load territories – compute area if missing, store owner name for leaderboard
       async function loadTerritories() {
         if (!selectedUserId) return;
         try {
@@ -685,18 +700,33 @@
             if (!t.geometry || !t.geometry.coordinates) return;
             const coords = t.geometry.coordinates[0].map(c => [c[1], c[0]]);
             const isOwn = (t.ownerId?._id === selectedUserId || t.ownerId === selectedUserId);
+            
+            // Compute area if not provided
+            let area = t.area;
+            if (!area && t.geometry) {
+              try {
+                area = turf.area(t.geometry);
+              } catch (e) { area = 0; }
+            }
+            
+            const bestTime = t.bestTime ? t.bestTime.toFixed(1) : 'N/A';
+            const ownerName = t.ownerId?.username || 'Unknown';
+            
             const polygon = L.polygon(coords, {
               color: isOwn ? '#22c55e' : '#ef4444',
               weight: 4,
               fillColor: isOwn ? '#22c55e' : '#ef4444',
               fillOpacity: 0.45,
-              interactive: true
+              interactive: true,
+              ownerName: ownerName,          // store for leaderboard
+              territoryArea: area || 0
             }).addTo(territoryLayer);
+            
             polygon.bindPopup(`
               <b>${isOwn ? 'YOUR' : 'ENEMY'} TERRITORY</b><br>
-              Owner: ${t.ownerId?.username || 'Unknown'}<br>
-              Area: ${t.area ? t.area.toFixed(0) : 'N/A'} m²<br>
-              Best lap: ${t.bestTime ? t.bestTime.toFixed(1) : 'N/A'}s
+              Owner: ${ownerName}<br>
+              Area: ${area ? area.toFixed(0) : 'N/A'} m²<br>
+              Best lap: ${bestTime} s
             `);
           });
         } catch (e) {
@@ -776,7 +806,7 @@
         }
       }
 
-      // Run logic
+      // Run logic (unchanged)
       function addPointToRun(pos, speedMs) {
         if (!runPath.length) {
           runPath.push({ lat: pos[0], lng: pos[1], timestamp: Date.now(), speed: speedMs || 0 });
@@ -831,7 +861,7 @@
         }
         const distKm = totalM / 1000;
         distanceEl.innerText = distKm.toFixed(2);
-        handleDistance.innerText = distKm.toFixed(2); // update handle too
+        handleDistance.innerText = distKm.toFixed(2);
         const secs = Math.floor((Date.now() - runStartTime) / 1000);
         const mins = Math.floor(secs/60);
         const remainingSecs = secs % 60;
