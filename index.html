@@ -5,15 +5,13 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>Kadam Clash – territory runner</title>
   
-  <!-- Leaflet & Turf (keep original) -->
+  <!-- Leaflet & Turf -->
   <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.css"/>
   <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
   
   <style>
-    /* ----------------------------------------------
-       RESET + GLOBAL – MOBILE FIRST, MAP FOCUSED
-    ------------------------------------------------ */
+    /* ---------- RESET – MOBILE FIRST, MAP FOCUSED ---------- */
     * {
       margin: 0;
       padding: 0;
@@ -42,12 +40,11 @@
       filter: brightness(0.75) contrast(1.2) saturate(0.9) grayscale(0.2);
     }
 
-    /* hide default zoom buttons (region 3/4 removed) */
     .leaflet-control-zoom {
       display: none !important;
     }
 
-    /* custom user marker (clean cab‑app style) */
+    /* custom user marker */
     .user-marker {
       background: transparent;
     }
@@ -67,7 +64,7 @@
       fill-opacity: 0.45 !important;
     }
 
-    /* ---------- TOP BAR – only hamburger (region 3/4 gone) ---------- */
+    /* ---------- TOP BAR – only hamburger ---------- */
     .top-bar {
       position: fixed;
       top: 16px;
@@ -108,12 +105,11 @@
       background: white;
       border-radius: 4px;
       left: 0;
-      transition: 0.2s;
     }
     .menu-btn div::before { top: -6px; }
     .menu-btn div::after { top: 6px; }
 
-    /* ---------- SIDE MENU (with close overlay) ---------- */
+    /* ---------- SIDE MENU (scrollable on small screens) ---------- */
     .menu-overlay {
       position: fixed;
       top: 0; left: 0;
@@ -143,6 +139,7 @@
       box-shadow: 10px 0 50px rgba(0,0,0,0.8);
       display: flex;
       flex-direction: column;
+      overflow-y: auto;  /* enable scrolling if content overflows */
     }
 
     .side-menu.open {
@@ -158,6 +155,7 @@
       -webkit-text-fill-color: transparent;
       margin-bottom: 40px;
       padding-left: 8px;
+      flex-shrink: 0;
     }
 
     .menu-item {
@@ -173,6 +171,7 @@
       transition: all 0.2s;
       cursor: pointer;
       border: 1px solid transparent;
+      flex-shrink: 0;
     }
 
     .menu-item:hover {
@@ -193,6 +192,7 @@
       flex-direction: column;
       align-items: flex-start;
       gap: 6px;
+      flex-shrink: 0;
     }
 
     .profile-row .menu-item {
@@ -208,9 +208,10 @@
       margin-top: -8px;
       margin-bottom: 12px;
       display: block;
+      word-break: break-word;
     }
 
-    /* ---------- COMPACT BOTTOM RUN CARD (region 2) ---------- */
+    /* ---------- COLLAPSIBLE BOTTOM RUN CARD ---------- */
     .run-card-container {
       position: fixed;
       bottom: 20px;
@@ -225,14 +226,57 @@
       backdrop-filter: blur(30px);
       -webkit-backdrop-filter: blur(30px);
       border-radius: 34px;
-      padding: 18px 20px 22px;
+      padding: 0; /* padding controlled by inner */
       border: 1px solid rgba(255,255,255,0.08);
       box-shadow: 0 20px 40px -8px black;
       pointer-events: auto;
-      transition: transform 0.2s;
+      transition: all 0.3s ease;
     }
 
-    /* runner name + small */
+    /* card handle (always visible) */
+    .card-handle {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 14px 20px;
+      cursor: pointer;
+      border-bottom: 1px solid rgba(255,255,255,0.05);
+    }
+    .handle-left {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    .handle-left .distance-number-small {
+      font-size: 1.8rem;
+      font-weight: 700;
+      color: white;
+      line-height: 1;
+    }
+    .handle-left .distance-unit-small {
+      font-size: 1rem;
+      color: #64748b;
+    }
+    .handle-right {
+      font-size: 24px;
+      color: #94a3b8;
+      transition: transform 0.3s;
+    }
+    .card-content {
+      overflow: hidden;
+      transition: max-height 0.3s ease;
+      max-height: 500px; /* expanded */
+      padding: 0 20px 22px 20px;
+    }
+    .run-card.collapsed .card-content {
+      max-height: 0;
+      padding: 0 20px;
+    }
+    .run-card.collapsed .handle-right {
+      transform: rotate(180deg);
+    }
+
+    /* runner row */
     .runner-row {
       display: flex;
       align-items: center;
@@ -259,7 +303,7 @@
       font-weight: 500;
     }
 
-    /* distance – smaller than before */
+    /* distance (inside expanded) – hidden when collapsed */
     .distance-compact {
       text-align: left;
       margin: 4px 0 8px;
@@ -295,7 +339,7 @@
       box-shadow: 0 0 8px #22c55e;
     }
 
-    /* three stats row (DURATION, LAPS, SPEED) */
+    /* three stats row */
     .stats-row {
       display: flex;
       justify-content: space-between;
@@ -360,7 +404,7 @@
       color: #6b7280;
     }
 
-    /* ---------- TOAST (premium, non‑intrusive) ---------- */
+    /* ---------- TOAST ---------- */
     .toast {
       position: fixed;
       top: 90px;
@@ -382,19 +426,17 @@
     .toast.success { background: #166534; }
     .toast.error { background: #7f1d1d; }
 
-    /* hidden selector (kept for logic) */
     #userSelector { display: none; }
   </style>
 </head>
 <body>
 
-  <!-- MAP (fullscreen) -->
   <div id="map"></div>
 
-  <!-- SIDE MENU OVERLAY (closes menu when tapped) -->
+  <!-- SIDE MENU OVERLAY -->
   <div class="menu-overlay" id="menuOverlay" onclick="closeMenu()"></div>
 
-  <!-- SIDE MENU with four items + profile username -->
+  <!-- SIDE MENU -->
   <div class="side-menu" id="sideMenu">
     <h2>⚡ KADAM</h2>
     
@@ -408,7 +450,7 @@
       <span class="icon">🥇</span> Leaderboard
     </div>
 
-    <!-- Profile section with dynamic username -->
+    <!-- Profile section -->
     <div class="profile-row">
       <div class="menu-item" id="menuMyProfile">
         <span class="icon">👤</span> My Profile
@@ -417,71 +459,75 @@
     </div>
   </div>
 
-  <!-- TOP BAR – only hamburger (region 3/4 removed) -->
+  <!-- TOP BAR – only hamburger -->
   <div class="top-bar">
     <div class="menu-btn" onclick="toggleMenu()">
       <div></div>
     </div>
   </div>
 
-  <!-- COMPACT BOTTOM RUN CARD (region 2) -->
+  <!-- COLLAPSIBLE BOTTOM RUN CARD -->
   <div class="run-card-container">
     <div class="run-card" id="runCard">
-
-      <!-- runner row: name + status -->
-      <div class="runner-row">
-        <span class="runner-name" id="runnerDisplay">Start <small>runner</small></span>
-        <span class="runner-status" id="runStatus">idle</span>
-      </div>
-
-      <!-- big distance -->
-      <div class="distance-compact">
-        <span class="distance-number" id="distance">0.00</span>
-        <span class="distance-unit">km</span>
-      </div>
-
-      <!-- location line (instead of top chip) -->
-      <div class="location-line">
-        <span class="dot"></span>
-        <span id="runLocation">acquiring GPS…</span>
-      </div>
-
-      <!-- three stats: DURATION, LAPS, SPEED -->
-      <div class="stats-row">
-        <div class="stat-item">
-          <div class="stat-label">DURATION</div>
-          <div class="stat-value" id="duration">00:00</div>
+      <!-- Handle (always visible) -->
+      <div class="card-handle" onclick="toggleCardCollapse()">
+        <div class="handle-left">
+          <span class="distance-number-small" id="handleDistance">0.00</span>
+          <span class="distance-unit-small">km</span>
         </div>
-        <div class="stat-item">
-          <div class="stat-label">LAPS</div>
-          <div class="stat-value" id="laps">0</div>
+        <div class="handle-right" id="collapseChevron">▼</div>
+      </div>
+      <!-- Expandable content -->
+      <div class="card-content" id="cardContent">
+        <div class="runner-row">
+          <span class="runner-name" id="runnerDisplay">Start <small>runner</small></span>
+          <span class="runner-status" id="runStatus">idle</span>
         </div>
-        <div class="stat-item">
-          <div class="stat-label">SPEED</div>
-          <div class="stat-value" id="avgSpeed">0.0</div>
-          <span class="stat-unit">km/h</span>
+
+        <!-- big distance (duplicate for expanded view) -->
+        <div class="distance-compact">
+          <span class="distance-number" id="distance">0.00</span>
+          <span class="distance-unit">km</span>
+        </div>
+
+        <div class="location-line">
+          <span class="dot"></span>
+          <span id="runLocation">acquiring GPS…</span>
+        </div>
+
+        <div class="stats-row">
+          <div class="stat-item">
+            <div class="stat-label">DURATION</div>
+            <div class="stat-value" id="duration">00:00</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">LAPS</div>
+            <div class="stat-value" id="laps">0</div>
+          </div>
+          <div class="stat-item">
+            <div class="stat-label">SPEED</div>
+            <div class="stat-value" id="avgSpeed">0.0</div>
+            <span class="stat-unit">km/h</span>
+          </div>
+        </div>
+
+        <button class="run-action-btn" id="runBtn" onclick="toggleRun()" disabled>
+          ▶ START RUN
+        </button>
+        <div class="hint-text" id="runHint">
+          👤 select profile to begin
         </div>
       </div>
-
-      <!-- main action button -->
-      <button class="run-action-btn" id="runBtn" onclick="toggleRun()" disabled>
-        ▶ START RUN
-      </button>
-      <div class="hint-text" id="runHint">
-        👤 select profile to begin
-      </div>
-
     </div>
   </div>
 
-  <!-- toast container (premium messages only) -->
   <div id="toast" class="toast"></div>
   <div id="userSelector"></div>
 
   <script>
     (function() {
       // --------------------------------------------------------------
-      // ORIGINAL LOGIC FULLY PRESERVED (only UI updates adapted)
+      // ORIGINAL LOGIC PRESERVED – only UI additions (collapsible card)
       // --------------------------------------------------------------
       const API_BASE = 'https://kadamclashbackend.onrender.com';
       const MOVEMENT_THRESHOLD = 5;
@@ -506,25 +552,33 @@
       let pathLayer = L.layerGroup();
       let territoryLayer = L.layerGroup();
 
-      // UI elements (adapted to new compact card)
+      // UI elements
       const runBtn = document.getElementById('runBtn');
       const runCard = document.getElementById('runCard');
       const runnerDisplay = document.getElementById('runnerDisplay');
       const runHint = document.getElementById('runHint');
       const distanceEl = document.getElementById('distance');
+      const handleDistance = document.getElementById('handleDistance');
       const durationEl = document.getElementById('duration');
       const lapsEl = document.getElementById('laps');
       const avgSpeedEl = document.getElementById('avgSpeed');
       const runLocationSpan = document.getElementById('runLocation');
       const runStatusSpan = document.getElementById('runStatus');
-      
-      // Profile username span (side menu)
       const profileUsernameSpan = document.getElementById('profileUsername');
-
-      // Toast
       const toast = document.getElementById('toast');
 
-      // Helper: show toast (premium style)
+      // Collapse state
+      let isCardCollapsed = false;
+      window.toggleCardCollapse = function() {
+        isCardCollapsed = !isCardCollapsed;
+        if (isCardCollapsed) {
+          runCard.classList.add('collapsed');
+        } else {
+          runCard.classList.remove('collapsed');
+        }
+      };
+
+      // Helper: show toast
       function showToast(message, type = 'info') {
         toast.className = `toast ${type}`;
         toast.innerHTML = message;
@@ -532,7 +586,7 @@
         setTimeout(() => { toast.style.display = 'none'; }, 3000);
       }
 
-      // API health – now using toasts instead of top bar chip
+      // API health
       async function checkAPI() {
         try {
           const res = await fetch(`${API_BASE}/health`);
@@ -571,7 +625,7 @@
         document.getElementById('menuOverlay').classList.remove('visible');
       };
 
-      // Sidebar actions (premium toasts instead of alerts)
+      // Sidebar actions
       document.getElementById('menuRunToWin').addEventListener('click', ()=>{
         showToast('🏆 Run to Win – start moving!', 'success');
         closeMenu();
@@ -594,7 +648,7 @@
         closeMenu();
       });
 
-      // Modified selectRunner (preserve original logic, but close menu)
+      // Select runner
       window.selectRunner = async function() {
         const name = prompt('Enter your runner name (new or existing):');
         if (!name || !name.trim()) return;
@@ -620,7 +674,7 @@
         }
       };
 
-      // Load territories (with solid, clean lines)
+      // Load territories
       async function loadTerritories() {
         if (!selectedUserId) return;
         try {
@@ -650,7 +704,7 @@
         }
       }
 
-      // Map init (remove zoom control)
+      // Map init
       function initMap() {
         map = L.map('map', { zoomControl: false }).setView([20, 0], 2);
         L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
@@ -684,7 +738,7 @@
       function initPosition(pos) {
         const { latitude, longitude, accuracy } = pos.coords;
         currentPosition = [latitude, longitude];
-        map.setView(currentPosition, 18); // max zoom
+        map.setView(currentPosition, 18);
 
         userMarker = L.marker(currentPosition, {
           icon: L.divIcon({ className: 'user-marker', html: '<div></div>', iconSize: [22,22] })
@@ -722,7 +776,7 @@
         }
       }
 
-      // (the rest of the logic – addPointToRun, drawRunPath, updateRunStats, startRun, stopRun – is exactly as original)
+      // Run logic
       function addPointToRun(pos, speedMs) {
         if (!runPath.length) {
           runPath.push({ lat: pos[0], lng: pos[1], timestamp: Date.now(), speed: speedMs || 0 });
@@ -777,6 +831,7 @@
         }
         const distKm = totalM / 1000;
         distanceEl.innerText = distKm.toFixed(2);
+        handleDistance.innerText = distKm.toFixed(2); // update handle too
         const secs = Math.floor((Date.now() - runStartTime) / 1000);
         const mins = Math.floor(secs/60);
         const remainingSecs = secs % 60;
@@ -870,6 +925,7 @@
         runPath = [];
         pathLayer.clearLayers();
         distanceEl.innerText = '0.00';
+        handleDistance.innerText = '0.00';
         durationEl.innerText = '00:00';
         lapsEl.innerText = '0';
         avgSpeedEl.innerText = '0.0';
