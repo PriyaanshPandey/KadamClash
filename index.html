@@ -612,12 +612,13 @@
   <script>
     (function() {
       // --------------------------------------------------------------
-      // TERRITORY CAPTURE – FIXED BUFFER 25m, DETAILED MESSAGES
+      // FINAL FIXES: buffer 100m, lap radius 50m with time cooldown
       // --------------------------------------------------------------
       const API_BASE = 'https://kadamclashbackend.onrender.com';
       const MOVEMENT_THRESHOLD = 5;
-      const LAP_RADIUS = 50;
-      const TERRITORY_BUFFER = 25; // 25 meters for reliable 70% overlap
+      const LAP_RADIUS = 50;          // meters from start to count a lap
+      const LAP_COOLDOWN_MS = 15000;   // 15 seconds between laps
+      const TERRITORY_BUFFER = 100;    // 100 meters to guarantee overlap
 
       let map;
       let currentPosition = null;
@@ -630,7 +631,7 @@
       let runStartTime = null;
       let runTimer = null;
       let lapCount = 0;
-      let lastLapCheckPosition = null;
+      let lastLapTime = 0;             // timestamp of last lap
 
       let userMarker = null;
       let accuracyCircle = null;
@@ -778,7 +779,6 @@
         leaderboardModal.classList.remove('show');
       };
       closeLeaderboardBtn.addEventListener('click', closeLeaderboard);
-      // Optional: close on overlay click
       leaderboardModal.addEventListener('click', (e) => {
         if (e.target === leaderboardModal) closeLeaderboard();
       });
@@ -839,10 +839,10 @@
           hash = str.charCodeAt(i) + ((hash << 5) - hash);
         }
         const hue = Math.abs(hash % 360);
-        return `hsl(${hue}, 70%, 55%)`; // bright, distinct
+        return `hsl(${hue}, 70%, 55%)`;
       }
 
-      // Load territories – compute area if missing, assign colors
+      // Load territories – compute area if missing, assign colors, show avg speed
       async function loadTerritories() {
         if (!selectedUserId) return;
         try {
@@ -862,10 +862,10 @@
               } catch (e) { area = 0; }
             }
             
-            const bestTime = t.bestTime ? t.bestTime.toFixed(1) : 'N/A';
+            // Use avgSpeed if available, otherwise bestTime (lap time)
+            const avgSpeed = t.avgSpeed ? t.avgSpeed.toFixed(1) : 'N/A';
             const ownerName = t.ownerId?.username || 'Unknown';
             
-            // Color: own = green, others = hash based
             const fillColor = isOwn ? '#22c55e' : stringToColor(ownerName);
             
             const polygon = L.polygon(coords, {
@@ -882,7 +882,7 @@
               <b>${isOwn ? 'YOUR' : ownerName}'s TERRITORY</b><br>
               Owner: ${ownerName}<br>
               Area: ${area ? area.toFixed(0) : 'N/A'} m²<br>
-              Best lap: ${bestTime} s
+              Avg speed: ${avgSpeed} km/h
             `);
           });
         } catch (e) {
@@ -962,40 +962,35 @@
         }
       }
 
-      // Run logic
+      // Run logic – simplified lap counting
       function addPointToRun(pos, speedMs) {
+        const now = Date.now();
         if (!runPath.length) {
-          runPath.push({ lat: pos[0], lng: pos[1], timestamp: Date.now(), speed: speedMs || 0 });
-          lastLapCheckPosition = pos;
+          runPath.push({ lat: pos[0], lng: pos[1], timestamp: now, speed: speedMs || 0 });
+          lastLapTime = now; // first point counts as lap start
           drawRunPath();
           return;
         }
+
         const last = runPath[runPath.length-1];
         const lastPos = [last.lat, last.lng];
         const dist = calculateDistance(lastPos, pos);
-        if (dist < MOVEMENT_THRESHOLD && (!speedMs || speedMs < 0.5)) return;
+        if (dist < MOVEMENT_THRESHOLD && (!speedMs || speedMs < 0.5)) return; // ignore drift
 
-        runPath.push({ lat: pos[0], lng: pos[1], timestamp: Date.now(), speed: speedMs || 0 });
+        runPath.push({ lat: pos[0], lng: pos[1], timestamp: now, speed: speedMs || 0 });
 
+        // Lap detection: if near start and enough time passed
         if (runPath.length > 5) {
           const start = [runPath[0].lat, runPath[0].lng];
           const distToStart = calculateDistance(pos, start);
-          if (distToStart <= LAP_RADIUS) {
-            if (lastLapCheckPosition) {
-              const distFromLastLap = calculateDistance(pos, lastLapCheckPosition);
-              if (distFromLastLap > LAP_RADIUS * 1.5) {
-                lapCount++;
-                lapsEl.innerText = lapCount;
-                lastLapCheckPosition = pos;
-                showToast(`🏁 Lap ${lapCount}!`, 'info');
-              }
-            } else {
-              lapCount++;
-              lapsEl.innerText = lapCount;
-              lastLapCheckPosition = pos;
-            }
+          if (distToStart <= LAP_RADIUS && (now - lastLapTime) > LAP_COOLDOWN_MS) {
+            lapCount++;
+            lapsEl.innerText = lapCount;
+            lastLapTime = now;
+            showToast(`🏁 Lap ${lapCount}!`, 'info');
           }
         }
+
         drawRunPath();
         updateRunStats();
       }
@@ -1048,7 +1043,7 @@
         runStartTime = Date.now();
         runPath = [];
         lapCount = 0;
-        lastLapCheckPosition = null;
+        lastLapTime = runStartTime;
         pathLayer.clearLayers();
         runBtn.innerText = '⏹️ STOP RUN';
         runBtn.classList.add('running');
@@ -1079,11 +1074,10 @@
         try {
           const lineCoords = runPath.map(p => [p.lng, p.lat]);
           const line = turf.lineString(lineCoords);
-          // Buffer 25m for reliable overlap
+          // Buffer 100m for reliable overlap
           const buffered = turf.buffer(line, TERRITORY_BUFFER, { units: 'meters' });
           if (!buffered || !buffered.geometry) throw new Error('Buffer failed');
           
-          // Validate polygon has area
           const area = turf.area(buffered);
           if (area < 1) throw new Error('Buffered area too small');
 
@@ -1096,11 +1090,11 @@
             userId: selectedUserId,
             polygon: buffered.geometry,
             duration: duration,
-            laps: lapCount || 1,
+            laps: lapCount || 1,  // ensure at least 1
             avgSpeed: avgSpeed || 0
           };
 
-          console.log('Submitting run:', JSON.stringify(payload, null, 2));
+          console.log('🚀 Submitting run:', JSON.stringify(payload, null, 2));
 
           const res = await fetch(`${API_BASE}/api/run`, {
             method: 'POST',
@@ -1108,23 +1102,26 @@
             body: JSON.stringify(payload)
           });
           const result = await res.json();
-          console.log('Run result:', result);
+          console.log('📦 Server response:', result);
 
-          // Show detailed message based on result
           if (result.created) {
             showToast('✨ New territory created!', 'success');
           } else if (result.captured) {
-            // We need to know who was defeated. The backend doesn't send previous owner.
-            // We can guess from the territory that was intersected (but we don't know which one).
-            // For simplicity, show generic victory.
-            showToast('⚔️ You captured an enemy territory!', 'success');
+            if (result.previousOwner) {
+              showToast(`⚔️ You defeated ${result.previousOwner}!`, 'success');
+            } else {
+              showToast('⚔️ Territory captured!', 'success');
+            }
+          } else if (result.defended) {
+            if (result.defender) {
+              showToast(`😵 You were defeated by ${result.defender}`, 'error');
+            } else {
+              showToast('😵 Your attack failed', 'error');
+            }
           } else {
-            // Possibly failed battle – we can try to retrieve the territory that was defended
-            // For now, generic message.
-            showToast('🏃 Run recorded (no capture)', 'info');
+            showToast('🏃 Run recorded (no battle)', 'info');
           }
 
-          // Force reload territories to reflect ownership changes
           await loadTerritories();
         } catch (err) {
           showToast('Error: ' + err.message, 'error');
