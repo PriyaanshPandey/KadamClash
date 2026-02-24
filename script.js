@@ -5,7 +5,7 @@
   const API_BASE = 'https://kadamclashbackend.onrender.com';
   const MOVEMENT_THRESHOLD = 5;
   const LAP_RADIUS = 50;               // base radius from start to count a lap
-  const LAP_COOLDOWN_MS = 15000;        // 15 seconds between laps (was 600000)
+  const LAP_COOLDOWN_MS = 15000;        // 15 seconds between laps
   const TERRITORY_BUFFER = 20;           // buffer for territory capture
   const MIN_LOOP_DISTANCE = 100;         // must go at least 100m from start to count a lap
 
@@ -20,11 +20,11 @@
   let runStartTime = null;
   let runTimer = null;
   let lapCount = 0;
-  let lastLapTime = 0;                   // timestamp of last lap
+  let lastLapTime = 0;
 
-  // New lap‑tracking variables
-  let maxDistFromStart = 0;              // furthest distance from start so far
-  let insideStartZone = false;            // whether we are currently inside the lap zone
+  // Lap‑tracking variables
+  let maxDistFromStart = 0;
+  let insideStartZone = false;
 
   let userMarker = null;
   let accuracyCircle = null;
@@ -64,7 +64,7 @@
     }
   };
 
-  // Helper: show toast (with types)
+  // Helper: show toast
   function showToast(message, type = 'info') {
     toast.className = `toast ${type}`;
     toast.innerHTML = message;
@@ -72,7 +72,7 @@
     setTimeout(() => { toast.style.display = 'none'; }, 4000);
   }
 
-  // API health – only show errors
+  // API health check
   let lastOnline = false;
   async function checkAPI() {
     try {
@@ -119,14 +119,14 @@
     document.getElementById('menuOverlay').classList.remove('visible');
   };
 
-  // Leaderboard function – gamified modal
+  // Leaderboard
   function showLeaderboard() {
     if (!territoryLayer || !territoryLayer.getLayers().length) {
       leaderboardList.innerHTML = '<div style="padding: 20px; color: #94a3b8;">No territories yet</div>';
       leaderboardModal.classList.add('show');
       return;
     }
-    const ownerMap = new Map(); // ownerName -> { count, totalArea }
+    const ownerMap = new Map();
     territoryLayer.eachLayer(layer => {
       if (layer instanceof L.Polygon) {
         const owner = layer.options.ownerName || 'unknown';
@@ -235,7 +235,7 @@
     return `hsl(${hue}, 70%, 55%)`;
   }
 
-  // Load territories – compute area if missing, assign colors, show avg speed
+  // Load territories – store numeric values in layer options
   async function loadTerritories() {
     if (!selectedUserId) return;
     try {
@@ -247,20 +247,21 @@
         const coords = t.geometry.coordinates[0].map(c => [c[1], c[0]]);
         const ownerId = t.ownerId?._id || t.ownerId;
         const isOwn = (ownerId === selectedUserId);
-        
+
         let area = t.area;
         if (!area && t.geometry) {
           try {
             area = turf.area(t.geometry);
           } catch (e) { area = 0; }
         }
-        
-        // Use avgSpeed if available, otherwise bestTime (lap time)
-        const avgSpeed = t.avgSpeed ? t.avgSpeed.toFixed(1) : 'N/A';
+
+        // Store numeric values for calculations
+        const avgSpeed = t.avgSpeed || 0;
+        const laps = t.laps || 1;
         const ownerName = t.ownerId?.username || 'Unknown';
-        
+
         const fillColor = isOwn ? '#22c55e' : stringToColor(ownerName);
-        
+
         const polygon = L.polygon(coords, {
           color: fillColor,
           weight: 4,
@@ -268,19 +269,174 @@
           fillOpacity: 0.45,
           interactive: true,
           ownerName: ownerName,
-          territoryArea: area || 0
+          ownerId: ownerId,
+          territoryArea: area || 0,
+          avgSpeed: avgSpeed,
+          laps: laps
         }).addTo(territoryLayer);
-        
+
         polygon.bindPopup(`
           <b>${isOwn ? 'YOUR' : ownerName}'s TERRITORY</b><br>
           Owner: ${ownerName}<br>
           Area: ${area ? area.toFixed(0) : 'N/A'} m²<br>
-          Avg speed: ${avgSpeed} km/h
+          Avg speed: ${avgSpeed.toFixed(1)} km/h<br>
+          Laps: ${laps}
         `);
       });
     } catch (e) {
       console.warn('Failed to load territories', e);
     }
+  }
+
+  // --------------------------------------------------------------
+  // Territory capture logic (single & multiple enemies)
+  // --------------------------------------------------------------
+  function evaluateRunAgainstTerritories(userPolygon, userAvgSpeed, userLaps) {
+    const enemies = []; // collect info for each intersecting enemy
+    territoryLayer.eachLayer(layer => {
+      if (!(layer instanceof L.Polygon)) return;
+      if (layer.options.ownerId === selectedUserId) return; // skip own territories
+
+      const enemyGeo = layer.toGeoJSON();
+      const intersect = turf.intersect(userPolygon, enemyGeo);
+      if (!intersect) return; // no overlap
+
+      const userArea = turf.area(userPolygon);
+      const enemyArea = layer.options.territoryArea || turf.area(enemyGeo);
+      const relation = getRelation(userPolygon, enemyGeo); // 'contains', 'inside', 'overlap'
+
+      enemies.push({
+        layer: layer,
+        geo: enemyGeo,
+        area: enemyArea,
+        avgSpeed: layer.options.avgSpeed || 0,
+        laps: layer.options.laps || 1,
+        relation: relation,
+        userArea: userArea,
+        enemyArea: enemyArea,
+        areaRatio: userArea / enemyArea
+      });
+    });
+
+    // Case 1: No enemies at all
+    if (enemies.length === 0) {
+      return {
+        outcome: 'created',
+        message: '✨ New territory created!',
+        mergedPolygon: userPolygon
+      };
+    }
+
+    // Multiple enemies – apply all-or-nothing rule
+    let allWon = true;
+    let conqueredEnemies = [];
+    let defeatMessage = '';
+
+    for (let e of enemies) {
+      const result = evaluateSingleEnemy(e, userAvgSpeed, userLaps);
+      if (result.outcome === 'lost') {
+        allWon = false;
+        defeatMessage = result.message;
+        break;
+      } else if (result.outcome === 'won') {
+        conqueredEnemies.push(e.geo);
+      } else if (result.outcome === 'autoWon') {
+        conqueredEnemies.push(e.geo);
+      }
+    }
+
+    if (!allWon) {
+      return {
+        outcome: 'defended',
+        message: defeatMessage || '😤 Your run was too weak to overcome all enemies.',
+        mergedPolygon: null
+      };
+    }
+
+    // All enemies conquered – merge everything
+    let merged = userPolygon;
+    for (let enemyGeo of conqueredEnemies) {
+      try {
+        merged = turf.union(merged, enemyGeo);
+      } catch (e) {
+        console.warn('Union failed, skipping one enemy', e);
+      }
+    }
+
+    return {
+      outcome: 'captured',
+      message: enemies.length > 1 ? '🔥 You conquered multiple territories!' : '⚔️ You defeated the enemy!',
+      mergedPolygon: merged
+    };
+  }
+
+  // Helper: determine geometric relation
+  function getRelation(userGeo, enemyGeo) {
+    const userContainsEnemy = turf.booleanContains(userGeo, enemyGeo);
+    if (userContainsEnemy) return 'contains';
+
+    const enemyContainsUser = turf.booleanContains(enemyGeo, userGeo);
+    if (enemyContainsUser) return 'inside';
+
+    return 'overlap';
+  }
+
+  // Evaluate a single enemy according to the rules
+  function evaluateSingleEnemy(enemy, userAvgSpeed, userLaps) {
+    const { relation, areaRatio, avgSpeed: enemySpeed, laps: enemyLaps } = enemy;
+
+    // Case 2: User is inside enemy territory
+    if (relation === 'inside') {
+      return {
+        outcome: 'lost',
+        message: `Your run is inside ${enemy.layer.options.ownerName}'s territory – no new territory.`
+      };
+    }
+
+    // Case 3 & 4: User contains enemy or they overlap
+    const sizeOk = areaRatio >= 0.8 && areaRatio <= 1.2;
+
+    if (relation === 'contains') {
+      if (!sizeOk) {
+        // Auto-win because you completely surround them (size mismatch)
+        return { outcome: 'autoWon', message: '' };
+      } else {
+        // Battle
+        const userScore = userAvgSpeed * 1000 + userLaps * 10;
+        const enemyScore = enemySpeed * 1000 + enemyLaps * 10;
+        if (userScore > enemyScore) {
+          return { outcome: 'won', message: '' };
+        } else {
+          return {
+            outcome: 'lost',
+            message: `😵 You were defeated by ${enemy.layer.options.ownerName}.`
+          };
+        }
+      }
+    }
+
+    if (relation === 'overlap') {
+      if (!sizeOk) {
+        return {
+          outcome: 'lost',
+          message: `Your run overlaps ${enemy.layer.options.ownerName}'s territory but you are too ${areaRatio < 0.8 ? 'small' : 'large'} to challenge.`
+        };
+      } else {
+        const userScore = userAvgSpeed * 1000 + userLaps * 10;
+        const enemyScore = enemySpeed * 1000 + enemyLaps * 10;
+        if (userScore > enemyScore) {
+          return { outcome: 'won', message: '' };
+        } else {
+          return {
+            outcome: 'lost',
+            message: `😵 You were defeated by ${enemy.layer.options.ownerName}.`
+          };
+        }
+      }
+    }
+
+    // Fallback
+    return { outcome: 'lost', message: 'Unknown error.' };
   }
 
   // Map init
@@ -355,12 +511,11 @@
     }
   }
 
-  // Run logic – improved lap counting with state machine
+  // Run logic – improved lap counting
   function addPointToRun(pos, speedMs) {
     const now = Date.now();
     if (!runPath.length) {
       runPath.push({ lat: pos[0], lng: pos[1], timestamp: now, speed: speedMs || 0 });
-      // Initially we are at start, so insideStartZone = true
       insideStartZone = true;
       maxDistFromStart = 0;
       lastLapTime = now;
@@ -368,7 +523,6 @@
       return;
     }
 
-    // Ignore points that are too close to the previous point (drift)
     const last = runPath[runPath.length-1];
     const lastPos = [last.lat, last.lng];
     const dist = calculateDistance(lastPos, pos);
@@ -376,32 +530,24 @@
 
     runPath.push({ lat: pos[0], lng: pos[1], timestamp: now, speed: speedMs || 0 });
 
-    // Lap detection logic
     if (runPath.length > 1) {
       const start = [runPath[0].lat, runPath[0].lng];
       const distToStart = calculateDistance(pos, start);
 
-      // Update max distance from start
       if (distToStart > maxDistFromStart) {
         maxDistFromStart = distToStart;
       }
 
-      // Adaptive lap radius: use current GPS accuracy if available, otherwise base radius
       const accuracy = accuracyCircle ? accuracyCircle.getRadius() : 20;
       const effectiveLapRadius = Math.max(LAP_RADIUS, accuracy * 1.5);
-
       const nowInside = (distToStart <= effectiveLapRadius);
 
-      // Lap counted on transition from outside to inside
       if (!insideStartZone && nowInside) {
-        // Only count if we've been far enough away and cooldown passed
         if (maxDistFromStart >= MIN_LOOP_DISTANCE && (now - lastLapTime) > LAP_COOLDOWN_MS) {
           lapCount++;
           lapsEl.innerText = lapCount;
           lastLapTime = now;
           showToast(`🏁 Lap ${lapCount}!`, 'info');
-
-          // Reset max distance for next lap (optional – allows multiple loops)
           maxDistFromStart = 0;
         }
       }
@@ -462,9 +608,8 @@
     runPath = [];
     lapCount = 0;
     lastLapTime = runStartTime;
-    // Initialize lap tracking state
     maxDistFromStart = 0;
-    insideStartZone = true; // start at the start point
+    insideStartZone = true;
     pathLayer.clearLayers();
     runBtn.innerText = '⏹️ STOP RUN';
     runBtn.classList.add('running');
@@ -495,10 +640,9 @@
     try {
       const lineCoords = runPath.map(p => [p.lng, p.lat]);
       const line = turf.lineString(lineCoords);
-      // Buffer 20m for territory capture (you may increase this)
       const buffered = turf.buffer(line, TERRITORY_BUFFER, { units: 'meters' });
       if (!buffered || !buffered.geometry) throw new Error('Buffer failed');
-      
+
       const area = turf.area(buffered);
       if (area < 1) throw new Error('Buffered area too small');
 
@@ -506,44 +650,46 @@
       const totalDistM = runPath.slice(1).reduce((acc, _, i) => {
         return acc + calculateDistance([runPath[i].lat, runPath[i].lng], [runPath[i+1].lat, runPath[i+1].lng]);
       }, 0);
-      const avgSpeed = (totalDistM/1000) / (duration/3600);
-      const payload = {
-        userId: selectedUserId,
-        polygon: buffered.geometry,
-        duration: duration,
-        laps: lapCount || 1,  // ensure at least 1
-        avgSpeed: avgSpeed || 0
-      };
+      const avgSpeed = (totalDistM/1000) / (duration/3600) || 0;
+      const laps = lapCount || 1;
 
-      console.log('🚀 Submitting run:', JSON.stringify(payload, null, 2));
+      // --- Evaluate territory capture ---
+      const evalResult = evaluateRunAgainstTerritories(buffered.geometry, avgSpeed, laps);
 
-      const res = await fetch(`${API_BASE}/api/run`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload)
-      });
-      const result = await res.json();
-      console.log('📦 Server response:', result);
+      // Show toast based on evaluation
+      let toastType = 'info';
+      if (evalResult.outcome === 'created' || evalResult.outcome === 'captured') toastType = 'success';
+      else if (evalResult.outcome === 'defended') toastType = 'error';
+      showToast(evalResult.message, toastType);
 
-      if (result.created) {
-        showToast('✨ New territory created!', 'success');
-      } else if (result.captured) {
-        if (result.previousOwner) {
-          showToast(`⚔️ You defeated ${result.previousOwner}!`, 'success');
-        } else {
-          showToast('⚔️ Territory captured!', 'success');
-        }
-      } else if (result.defended) {
-        if (result.defender) {
-          showToast(`😵 You were defeated by ${result.defender}`, 'error');
-        } else {
-          showToast('😵 Your attack failed', 'error');
-        }
+      // Only send to backend if we actually created or captured something
+      if (evalResult.outcome === 'created' || evalResult.outcome === 'captured') {
+        const finalPolygon = evalResult.mergedPolygon || buffered.geometry;
+        const payload = {
+          userId: selectedUserId,
+          polygon: finalPolygon,
+          duration: duration,
+          laps: laps,
+          avgSpeed: avgSpeed,
+          outcome: evalResult.outcome  // optional hint for backend
+        };
+
+        console.log('🚀 Submitting run:', JSON.stringify(payload, null, 2));
+
+        const res = await fetch(`${API_BASE}/api/run`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const result = await res.json();
+        console.log('📦 Server response:', result);
       } else {
-        showToast('🏃 Run recorded (no battle)', 'info');
+        console.log('Run did not result in territory change – no request sent.');
       }
 
+      // Always reload territories to reflect any changes (or confirm no change)
       await loadTerritories();
+
     } catch (err) {
       showToast('Error: ' + err.message, 'error');
       console.error(err);
