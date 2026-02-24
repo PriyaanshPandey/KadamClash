@@ -1,13 +1,13 @@
 (function() {
   // --------------------------------------------------------------
-  // LAP DETECTION IMPROVEMENTS: state machine + adaptive radius
+  // LAP DETECTION + TERRITORY CAPTURE + GAMIFICATION
   // --------------------------------------------------------------
   const API_BASE = 'https://kadamclashbackend.onrender.com';
   const MOVEMENT_THRESHOLD = 5;
-  const LAP_RADIUS = 50;               // base radius from start to count a lap
-  const LAP_COOLDOWN_MS = 15000;        // 15 seconds between laps
-  const TERRITORY_BUFFER = 20;           // buffer for territory capture
-  const MIN_LOOP_DISTANCE = 100;         // must go at least 100m from start to count a lap
+  const LAP_RADIUS = 50;
+  const LAP_COOLDOWN_MS = 15000;
+  const TERRITORY_BUFFER = 20;
+  const MIN_LOOP_DISTANCE = 100;
 
   let map;
   let currentPosition = null;
@@ -21,8 +21,6 @@
   let runTimer = null;
   let lapCount = 0;
   let lastLapTime = 0;
-
-  // Lap‑tracking variables
   let maxDistFromStart = 0;
   let insideStartZone = false;
 
@@ -30,6 +28,15 @@
   let accuracyCircle = null;
   let pathLayer = L.layerGroup();
   let territoryLayer = L.layerGroup();
+
+  // Sound toggle
+  let soundEnabled = true;
+  const sounds = {
+    lap: new Howl({ src: ['https://www.soundjay.com/misc/sounds/bell-ringing-05.mp3'], volume: 0.3 }),
+    capture: new Howl({ src: ['https://www.soundjay.com/misc/sounds/fanfare-1.mp3'], volume: 0.3 }),
+    defeat: new Howl({ src: ['https://www.soundjay.com/misc/sounds/sad-trombone-01.mp3'], volume: 0.3 }),
+    start: new Howl({ src: ['https://www.soundjay.com/misc/sounds/beep-01a.mp3'], volume: 0.3 })
+  };
 
   // UI elements
   const runBtn = document.getElementById('runBtn');
@@ -47,32 +54,125 @@
   const runStatusSpan = document.getElementById('runStatus');
   const profileUsernameSpan = document.getElementById('profileUsername');
   const toast = document.getElementById('toast');
+  const lapPopup = document.getElementById('lapPopup');
+  const confettiCanvas = document.getElementById('confettiCanvas');
+  const soundStatus = document.getElementById('soundStatus');
 
   // Leaderboard modal
   const leaderboardModal = document.getElementById('leaderboardModal');
   const leaderboardList = document.getElementById('leaderboardList');
   const closeLeaderboardBtn = document.getElementById('closeLeaderboardBtn');
 
-  // Collapse state
-  let isCardCollapsed = false;
-  window.toggleCardCollapse = function() {
-    isCardCollapsed = !isCardCollapsed;
-    if (isCardCollapsed) {
-      runCard.classList.add('collapsed');
-    } else {
-      runCard.classList.remove('collapsed');
-    }
-  };
+  // My Territories modal
+  const myTerritoriesModal = document.getElementById('myTerritoriesModal');
+  const myTerritoriesList = document.getElementById('myTerritoriesList');
+  const closeMyTerritoriesBtn = document.getElementById('closeMyTerritoriesBtn');
 
-  // Helper: show toast
-  function showToast(message, type = 'info') {
-    toast.className = `toast ${type}`;
-    toast.innerHTML = message;
-    toast.style.display = 'flex';
-    setTimeout(() => { toast.style.display = 'none'; }, 4000);
+  // Collapse state & swipe
+  let isCardCollapsed = false;
+  let touchStartY = 0;
+  const cardHandle = document.getElementById('cardHandle');
+
+  // Pull-to-refresh
+  let pullStartY = 0;
+  const pullIndicator = document.createElement('div');
+  pullIndicator.className = 'pull-indicator';
+  pullIndicator.innerText = '↓ Pull to refresh';
+  document.body.appendChild(pullIndicator);
+
+  // Confetti
+  let confettiCtx = confettiCanvas.getContext('2d');
+  let confettiParticles = [];
+
+  // Helper: show gamified toast
+  function showGamifiedToast(message, type = 'info', icon = '') {
+    const icons = {
+      success: '✅',
+      error: '❌',
+      info: 'ℹ️',
+      lap: '🏁',
+      capture: '⚔️',
+      defeat: '😵'
+    };
+    const useIcon = icon || icons[type] || '';
+    toast.innerHTML = `<span class="toast-icon">${useIcon}</span> ${message}`;
+    toast.className = `toast ${type} show`;
+    setTimeout(() => toast.classList.remove('show'), 3000);
   }
 
-  // API health check
+  // Confetti
+  function startConfetti() {
+    confettiCanvas.style.display = 'block';
+    for (let i = 0; i < 100; i++) {
+      confettiParticles.push({
+        x: Math.random() * confettiCanvas.width,
+        y: Math.random() * confettiCanvas.height,
+        size: Math.random() * 5 + 2,
+        speedY: Math.random() * 3 + 2,
+        color: `hsl(${Math.random() * 360}, 100%, 50%)`
+      });
+    }
+    if (!confettiInterval) {
+      confettiInterval = setInterval(drawConfetti, 30);
+    }
+  }
+  let confettiInterval;
+  function drawConfetti() {
+    confettiCtx.clearRect(0, 0, confettiCanvas.width, confettiCanvas.height);
+    confettiParticles.forEach(p => {
+      p.y += p.speedY;
+      if (p.y > confettiCanvas.height) {
+        p.y = 0;
+        p.x = Math.random() * confettiCanvas.width;
+      }
+      confettiCtx.fillStyle = p.color;
+      confettiCtx.fillRect(p.x, p.y, p.size, p.size);
+    });
+  }
+  function stopConfetti() {
+    clearInterval(confettiInterval);
+    confettiInterval = null;
+    confettiCanvas.style.display = 'none';
+    confettiParticles = [];
+  }
+
+  // Lap celebration
+  function celebrateLap(lapNum) {
+    lapPopup.innerText = `LAP ${lapNum}!`;
+    lapPopup.classList.add('show');
+    setTimeout(() => lapPopup.classList.remove('show'), 1500);
+    startConfetti();
+    setTimeout(stopConfetti, 1500);
+    if (soundEnabled) sounds.lap.play();
+  }
+
+  // Territory capture animation
+  function animateCapture(layer) {
+    if (!layer) return;
+    const el = layer.getElement();
+    if (el) {
+      el.classList.add('territory-captured');
+      setTimeout(() => el.classList.remove('territory-captured'), 1000);
+    }
+    if (soundEnabled) sounds.capture.play();
+    startConfetti();
+    setTimeout(stopConfetti, 2000);
+  }
+
+  // Territory defeat animation
+  function animateDefeat(layer) {
+    if (!layer) return;
+    const el = layer.getElement();
+    if (el) {
+      el.classList.add('territory-defeated');
+      setTimeout(() => {
+        if (layer) territoryLayer.removeLayer(layer);
+      }, 500);
+    }
+    if (soundEnabled) sounds.defeat.play();
+  }
+
+  // API health
   let lastOnline = false;
   async function checkAPI() {
     try {
@@ -80,16 +180,16 @@
       const data = await res.json();
       const online = (data.database === 'connected');
       if (!online && lastOnline) {
-        showToast('⚠️ DB issue', 'error');
+        showGamifiedToast('⚠️ DB issue', 'error', '⚠️');
       } else if (!online) {
-        showToast('⚠️ DB issue', 'error');
+        showGamifiedToast('⚠️ DB issue', 'error', '⚠️');
       }
       lastOnline = online;
     } catch {
       if (lastOnline) {
-        showToast('❌ Server offline', 'error');
+        showGamifiedToast('❌ Server offline', 'error', '❌');
       } else {
-        showToast('❌ Server offline', 'error');
+        showGamifiedToast('❌ Server offline', 'error', '❌');
       }
       lastOnline = false;
     }
@@ -109,7 +209,7 @@
     }
   }
 
-  // Menu functions
+  // Menu
   window.toggleMenu = function() {
     document.getElementById('sideMenu').classList.toggle('open');
     document.getElementById('menuOverlay').classList.toggle('visible');
@@ -118,6 +218,14 @@
     document.getElementById('sideMenu').classList.remove('open');
     document.getElementById('menuOverlay').classList.remove('visible');
   };
+
+  // Sound toggle
+  document.getElementById('toggleSound').addEventListener('click', () => {
+    soundEnabled = !soundEnabled;
+    soundStatus.innerText = soundEnabled ? 'ON' : 'OFF';
+    showGamifiedToast(`Sound ${soundEnabled ? 'ON' : 'OFF'}`, 'info', '🔊');
+    closeMenu();
+  });
 
   // Leaderboard
   function showLeaderboard() {
@@ -154,8 +262,9 @@
         if (idx === 0) rankClass = 'rank-1';
         else if (idx === 1) rankClass = 'rank-2';
         else if (idx === 2) rankClass = 'rank-3';
+        const isCurrent = u.name === selectedUsername;
         html += `
-          <div class="leaderboard-item">
+          <div class="leaderboard-item ${isCurrent ? 'current-user' : ''}">
             <span class="rank ${rankClass}">#${idx+1}</span>
             <span class="player-info">${u.name}</span>
             <span class="player-stats">${u.totalArea.toFixed(0)} m² · ${u.count} 🗺️</span>
@@ -167,7 +276,6 @@
     leaderboardModal.classList.add('show');
   }
 
-  // Close leaderboard
   window.closeLeaderboard = function() {
     leaderboardModal.classList.remove('show');
   };
@@ -176,18 +284,51 @@
     if (e.target === leaderboardModal) closeLeaderboard();
   });
 
+  // My Territories
+  function showMyTerritories() {
+    if (!selectedUserId) {
+      showGamifiedToast('Select a profile first', 'error', '👤');
+      return;
+    }
+    const myTerritories = [];
+    territoryLayer.eachLayer(layer => {
+      if (layer instanceof L.Polygon && layer.options.ownerId === selectedUserId) {
+        myTerritories.push({
+          name: layer.options.ownerName,
+          area: layer.options.territoryArea || 0,
+          avgSpeed: layer.options.avgSpeed || 0,
+          laps: layer.options.laps || 1
+        });
+      }
+    });
+    if (myTerritories.length === 0) {
+      myTerritoriesList.innerHTML = '<div style="padding: 20px; color: #94a3b8;">No territories yet</div>';
+    } else {
+      let html = '';
+      myTerritories.forEach(t => {
+        html += `
+          <div class="territory-item">
+            <div class="name">${t.name}</div>
+            <div class="details">Area: ${t.area.toFixed(0)} m² · Avg speed: ${t.avgSpeed.toFixed(1)} km/h · Laps: ${t.laps}</div>
+          </div>
+        `;
+      });
+      myTerritoriesList.innerHTML = html;
+    }
+    myTerritoriesModal.classList.add('show');
+  }
+  closeMyTerritoriesBtn.addEventListener('click', () => myTerritoriesModal.classList.remove('show'));
+  myTerritoriesModal.addEventListener('click', (e) => {
+    if (e.target === myTerritoriesModal) myTerritoriesModal.classList.remove('show');
+  });
+
   // Sidebar actions
   document.getElementById('menuRunToWin').addEventListener('click', ()=>{
-    showToast('🏆 Run to Win – start moving!', 'info');
+    showGamifiedToast('🏆 Run to Win – start moving!', 'info', '🏆');
     closeMenu();
   });
   document.getElementById('menuMyTerritories').addEventListener('click', ()=>{
-    if(selectedUserId) {
-      loadTerritories();
-      showToast('🗺 Territories refreshed', 'info');
-    } else {
-      showToast('👤 Select a profile first', 'error');
-    }
+    showMyTerritories();
     closeMenu();
   });
   document.getElementById('menuLeaderboard').addEventListener('click', ()=>{
@@ -218,14 +359,13 @@
       runBtn.disabled = false;
       runHint.innerText = 'Ready to run';
       runStatusSpan.innerText = 'ready';
-      showToast(`Welcome, ${selectedUsername}!`, 'success');
+      showGamifiedToast(`Welcome, ${selectedUsername}!`, 'success', '👋');
       loadTerritories();
     } catch (e) {
-      showToast('User creation failed', 'error');
+      showGamifiedToast('User creation failed', 'error', '❌');
     }
   };
 
-  // Generate color from username (hash)
   function stringToColor(str) {
     let hash = 0;
     for (let i = 0; i < str.length; i++) {
@@ -235,7 +375,7 @@
     return `hsl(${hue}, 70%, 55%)`;
   }
 
-  // Load territories – store numeric values in layer options
+  // Load territories
   async function loadTerritories() {
     if (!selectedUserId) return;
     try {
@@ -255,7 +395,6 @@
           } catch (e) { area = 0; }
         }
 
-        // Store numeric values for calculations
         const avgSpeed = t.avgSpeed || 0;
         const laps = t.laps || 1;
         const ownerName = t.ownerId?.username || 'Unknown';
@@ -288,22 +427,20 @@
     }
   }
 
-  // --------------------------------------------------------------
-  // Territory capture logic (single & multiple enemies)
-  // --------------------------------------------------------------
+  // Territory capture logic (same as before, with animation hooks)
   function evaluateRunAgainstTerritories(userPolygon, userAvgSpeed, userLaps) {
-    const enemies = []; // collect info for each intersecting enemy
+    const enemies = [];
     territoryLayer.eachLayer(layer => {
       if (!(layer instanceof L.Polygon)) return;
-      if (layer.options.ownerId === selectedUserId) return; // skip own territories
+      if (layer.options.ownerId === selectedUserId) return;
 
       const enemyGeo = layer.toGeoJSON();
       const intersect = turf.intersect(userPolygon, enemyGeo);
-      if (!intersect) return; // no overlap
+      if (!intersect) return;
 
       const userArea = turf.area(userPolygon);
       const enemyArea = layer.options.territoryArea || turf.area(enemyGeo);
-      const relation = getRelation(userPolygon, enemyGeo); // 'contains', 'inside', 'overlap'
+      const relation = getRelation(userPolygon, enemyGeo);
 
       enemies.push({
         layer: layer,
@@ -318,16 +455,10 @@
       });
     });
 
-    // Case 1: No enemies at all
     if (enemies.length === 0) {
-      return {
-        outcome: 'created',
-        message: '✨ New territory created!',
-        mergedPolygon: userPolygon
-      };
+      return { outcome: 'created', message: '✨ New territory created!', mergedPolygon: userPolygon, enemies: [] };
     }
 
-    // Multiple enemies – apply all-or-nothing rule
     let allWon = true;
     let conqueredEnemies = [];
     let defeatMessage = '';
@@ -338,10 +469,8 @@
         allWon = false;
         defeatMessage = result.message;
         break;
-      } else if (result.outcome === 'won') {
-        conqueredEnemies.push(e.geo);
-      } else if (result.outcome === 'autoWon') {
-        conqueredEnemies.push(e.geo);
+      } else if (result.outcome === 'won' || result.outcome === 'autoWon') {
+        conqueredEnemies.push(e);
       }
     }
 
@@ -349,93 +478,54 @@
       return {
         outcome: 'defended',
         message: defeatMessage || '😤 Your run was too weak to overcome all enemies.',
-        mergedPolygon: null
+        mergedPolygon: null,
+        enemies: enemies
       };
     }
 
-    // All enemies conquered – merge everything
     let merged = userPolygon;
-    for (let enemyGeo of conqueredEnemies) {
+    for (let e of conqueredEnemies) {
       try {
-        merged = turf.union(merged, enemyGeo);
-      } catch (e) {
-        console.warn('Union failed, skipping one enemy', e);
+        merged = turf.union(merged, e.geo);
+      } catch (err) {
+        console.warn('Union failed', err);
       }
     }
 
     return {
       outcome: 'captured',
       message: enemies.length > 1 ? '🔥 You conquered multiple territories!' : '⚔️ You defeated the enemy!',
-      mergedPolygon: merged
+      mergedPolygon: merged,
+      enemies: conqueredEnemies
     };
   }
 
-  // Helper: determine geometric relation
   function getRelation(userGeo, enemyGeo) {
-    const userContainsEnemy = turf.booleanContains(userGeo, enemyGeo);
-    if (userContainsEnemy) return 'contains';
-
-    const enemyContainsUser = turf.booleanContains(enemyGeo, userGeo);
-    if (enemyContainsUser) return 'inside';
-
+    if (turf.booleanContains(userGeo, enemyGeo)) return 'contains';
+    if (turf.booleanContains(enemyGeo, userGeo)) return 'inside';
     return 'overlap';
   }
 
-  // Evaluate a single enemy according to the rules
   function evaluateSingleEnemy(enemy, userAvgSpeed, userLaps) {
     const { relation, areaRatio, avgSpeed: enemySpeed, laps: enemyLaps } = enemy;
-
-    // Case 2: User is inside enemy territory
     if (relation === 'inside') {
-      return {
-        outcome: 'lost',
-        message: `Your run is inside ${enemy.layer.options.ownerName}'s territory – no new territory.`
-      };
+      return { outcome: 'lost', message: `Your run is inside ${enemy.layer.options.ownerName}'s territory – no new territory.` };
     }
-
-    // Case 3 & 4: User contains enemy or they overlap
     const sizeOk = areaRatio >= 0.8 && areaRatio <= 1.2;
-
     if (relation === 'contains') {
-      if (!sizeOk) {
-        // Auto-win because you completely surround them (size mismatch)
-        return { outcome: 'autoWon', message: '' };
-      } else {
-        // Battle
-        const userScore = userAvgSpeed * 1000 + userLaps * 10;
-        const enemyScore = enemySpeed * 1000 + enemyLaps * 10;
-        if (userScore > enemyScore) {
-          return { outcome: 'won', message: '' };
-        } else {
-          return {
-            outcome: 'lost',
-            message: `😵 You were defeated by ${enemy.layer.options.ownerName}.`
-          };
-        }
-      }
+      if (!sizeOk) return { outcome: 'autoWon', message: '' };
+      const userScore = userAvgSpeed * 1000 + userLaps * 10;
+      const enemyScore = enemySpeed * 1000 + enemyLaps * 10;
+      return userScore > enemyScore ? { outcome: 'won', message: '' } : { outcome: 'lost', message: `😵 You were defeated by ${enemy.layer.options.ownerName}.` };
     }
-
     if (relation === 'overlap') {
       if (!sizeOk) {
-        return {
-          outcome: 'lost',
-          message: `Your run overlaps ${enemy.layer.options.ownerName}'s territory but you are too ${areaRatio < 0.8 ? 'small' : 'large'} to challenge.`
-        };
-      } else {
-        const userScore = userAvgSpeed * 1000 + userLaps * 10;
-        const enemyScore = enemySpeed * 1000 + enemyLaps * 10;
-        if (userScore > enemyScore) {
-          return { outcome: 'won', message: '' };
-        } else {
-          return {
-            outcome: 'lost',
-            message: `😵 You were defeated by ${enemy.layer.options.ownerName}.`
-          };
-        }
+        return { outcome: 'lost', message: `Your run overlaps ${enemy.layer.options.ownerName}'s territory but you are too ${areaRatio < 0.8 ? 'small' : 'large'} to challenge.` };
       }
+      const userScore = userAvgSpeed * 1000 + userLaps * 10;
+      const enemyScore = enemySpeed * 1000 + enemyLaps * 10;
+      return userScore > enemyScore ? { outcome: 'won', message: '' } : { outcome: 'lost', message: `😵 You were defeated by ${enemy.layer.options.ownerName}.` };
     }
-
-    // Fallback
     return { outcome: 'lost', message: 'Unknown error.' };
   }
 
@@ -467,7 +557,7 @@
 
   function handleGeoError(err) {
     runLocationSpan.innerText = '❌ Location denied';
-    showToast('Please enable GPS', 'error');
+    showGamifiedToast('Please enable GPS', 'error', '📍');
   }
 
   function initPosition(pos) {
@@ -511,7 +601,6 @@
     }
   }
 
-  // Run logic – improved lap counting
   function addPointToRun(pos, speedMs) {
     const now = Date.now();
     if (!runPath.length) {
@@ -547,7 +636,7 @@
           lapCount++;
           lapsEl.innerText = lapCount;
           lastLapTime = now;
-          showToast(`🏁 Lap ${lapCount}!`, 'info');
+          celebrateLap(lapCount);
           maxDistFromStart = 0;
         }
       }
@@ -563,8 +652,8 @@
     pathLayer.clearLayers();
     if (runPath.length < 2) return;
     const latlngs = runPath.map(p => [p.lat, p.lng]);
-    L.polyline(latlngs, { color: '#3b82f6', weight: 5, opacity: 0.8 }).addTo(pathLayer);
-    L.circleMarker([runPath[0].lat, runPath[0].lng], { radius: 6, color: '#22c55e', fillColor: '#22c55e', fillOpacity: 1 }).addTo(pathLayer);
+    L.polyline(latlngs, { color: '#3b82f6', weight: 5, opacity: 0.8, className: 'animated-path' }).addTo(pathLayer);
+    L.circleMarker([runPath[0].lat, runPath[0].lng], { radius: 6, color: '#22c55e', fillColor: '#22c55e', fillOpacity: 1, className: 'pulsing-start' }).addTo(pathLayer);
     L.circleMarker([runPath[runPath.length-1].lat, runPath[runPath.length-1].lng], { radius: 6, color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 1 }).addTo(pathLayer);
   }
 
@@ -587,11 +676,17 @@
     const avg = hours > 0 ? distKm / hours : 0;
     avgSpeedEl.innerText = avg.toFixed(1);
     handleSpeed.innerText = avg.toFixed(1);
+
+    // Milestone confetti for 1km
+    if (distKm >= 1 && distKm < 1.01) { // approximate
+      startConfetti();
+      setTimeout(stopConfetti, 2000);
+    }
   }
 
   window.toggleRun = function() {
     if (!selectedUserId) {
-      showToast('Select a runner first', 'error');
+      showGamifiedToast('Select a runner first', 'error', '👤');
       return;
     }
     if (!isRunning) startRun();
@@ -600,7 +695,7 @@
 
   function startRun() {
     if (!currentPosition) {
-      showToast('Waiting for GPS', 'error');
+      showGamifiedToast('Waiting for GPS', 'error', '📍');
       return;
     }
     isRunning = true;
@@ -619,7 +714,8 @@
     runnerDisplay.innerHTML = `${selectedUsername} <small>running</small>`;
     addPointToRun(currentPosition, 0);
     runTimer = setInterval(() => { if (isRunning) updateRunStats(); }, 1000);
-    showToast('Run started!', 'info');
+    showGamifiedToast('Run started!', 'info', '🏃');
+    if (soundEnabled) sounds.start.play();
   }
 
   async function stopRun() {
@@ -632,7 +728,7 @@
     runBtn.disabled = true;
 
     if (runPath.length < 5) {
-      showToast('Run too short (need more movement)', 'error');
+      showGamifiedToast('Run too short (need more movement)', 'error', '⚠️');
       resetRunUI();
       return;
     }
@@ -653,16 +749,22 @@
       const avgSpeed = (totalDistM/1000) / (duration/3600) || 0;
       const laps = lapCount || 1;
 
-      // --- Evaluate territory capture ---
       const evalResult = evaluateRunAgainstTerritories(buffered.geometry, avgSpeed, laps);
 
-      // Show toast based on evaluation
       let toastType = 'info';
       if (evalResult.outcome === 'created' || evalResult.outcome === 'captured') toastType = 'success';
       else if (evalResult.outcome === 'defended') toastType = 'error';
-      showToast(evalResult.message, toastType);
+      showGamifiedToast(evalResult.message, toastType);
 
-      // Only send to backend if we actually created or captured something
+      // Animate conquered enemies
+      if (evalResult.outcome === 'captured' && evalResult.enemies) {
+        evalResult.enemies.forEach(e => animateDefeat(e.layer));
+        // After a short delay, show capture animation on new territory (will be added after loadTerritories)
+        setTimeout(() => {
+          // We'll trigger animation after reload
+        }, 600);
+      }
+
       if (evalResult.outcome === 'created' || evalResult.outcome === 'captured') {
         const finalPolygon = evalResult.mergedPolygon || buffered.geometry;
         const payload = {
@@ -671,7 +773,7 @@
           duration: duration,
           laps: laps,
           avgSpeed: avgSpeed,
-          outcome: evalResult.outcome  // optional hint for backend
+          outcome: evalResult.outcome
         };
 
         console.log('🚀 Submitting run:', JSON.stringify(payload, null, 2));
@@ -683,15 +785,21 @@
         });
         const result = await res.json();
         console.log('📦 Server response:', result);
-      } else {
-        console.log('Run did not result in territory change – no request sent.');
       }
 
-      // Always reload territories to reflect any changes (or confirm no change)
       await loadTerritories();
 
+      // After reload, find the newly added territory (the user's) and animate it
+      if (evalResult.outcome === 'captured' || evalResult.outcome === 'created') {
+        territoryLayer.eachLayer(layer => {
+          if (layer.options.ownerId === selectedUserId) {
+            animateCapture(layer);
+          }
+        });
+      }
+
     } catch (err) {
-      showToast('Error: ' + err.message, 'error');
+      showGamifiedToast('Error: ' + err.message, 'error', '❌');
       console.error(err);
     } finally {
       resetRunUI();
@@ -728,6 +836,63 @@
     const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1-a));
     return R * c;
   }
+
+  // Swipe to collapse/expand
+  cardHandle.addEventListener('touchstart', (e) => {
+    touchStartY = e.touches[0].clientY;
+  });
+  cardHandle.addEventListener('touchmove', (e) => {
+    if (!touchStartY) return;
+    const deltaY = e.touches[0].clientY - touchStartY;
+    if (Math.abs(deltaY) > 30) {
+      if (deltaY > 0 && !isCardCollapsed) {
+        toggleCardCollapse();
+      } else if (deltaY < 0 && isCardCollapsed) {
+        toggleCardCollapse();
+      }
+      touchStartY = 0;
+    }
+  });
+
+  window.toggleCardCollapse = function() {
+    isCardCollapsed = !isCardCollapsed;
+    if (isCardCollapsed) {
+      runCard.classList.add('collapsed');
+    } else {
+      runCard.classList.remove('collapsed');
+    }
+  };
+
+  // Pull-to-refresh
+  document.addEventListener('touchstart', (e) => {
+    if (window.scrollY === 0) {
+      pullStartY = e.touches[0].clientY;
+    }
+  });
+  document.addEventListener('touchmove', (e) => {
+    if (pullStartY && e.touches[0].clientY - pullStartY > 80) {
+      pullIndicator.classList.add('show');
+    }
+  });
+  document.addEventListener('touchend', (e) => {
+    if (pullIndicator.classList.contains('show')) {
+      loadTerritories();
+      showGamifiedToast('Territories refreshed', 'info', '🔄');
+    }
+    pullIndicator.classList.remove('show');
+    pullStartY = 0;
+  });
+
+  // Fullscreen
+  window.toggleFullscreen = function() {
+    if (!document.fullscreenElement) {
+      document.documentElement.requestFullscreen();
+    } else {
+      if (document.exitFullscreen) {
+        document.exitFullscreen();
+      }
+    }
+  };
 
   window.addEventListener('beforeunload', () => {
     if (watchId) navigator.geolocation.clearWatch(watchId);
