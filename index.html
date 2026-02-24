@@ -10,6 +10,9 @@
   <script src="https://cdn.jsdelivr.net/npm/@turf/turf@6/turf.min.js"></script>
   <script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.js"></script>
   
+  <!-- Howler for sounds (optional) -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/howler/2.2.4/howler.min.js"></script>
+  
   <!-- Custom styles -->
   <link rel="stylesheet" href="style.css">
 </head>
@@ -23,6 +26,15 @@
       <h3>🏆 LEADERBOARD</h3>
       <div id="leaderboardList" class="leaderboard-list"></div>
       <button class="modal-close" id="closeLeaderboardBtn">CLOSE</button>
+    </div>
+  </div>
+
+  <!-- MY TERRITORIES MODAL -->
+  <div class="modal-overlay" id="myTerritoriesModal">
+    <div class="leaderboard-modal" style="max-width: 380px;">
+      <h3>🗺️ MY TERRITORIES</h3>
+      <div id="myTerritoriesList" class="territory-list"></div>
+      <button class="modal-close" id="closeMyTerritoriesBtn">CLOSE</button>
     </div>
   </div>
 
@@ -45,6 +57,9 @@
     <div class="menu-item" id="menuMyProfile">
       <span class="icon">👤</span> My Profile
     </div>
+    <div class="menu-item" id="toggleSound">
+      <span class="icon">🔊</span> Sound <span id="soundStatus">ON</span>
+    </div>
     <div class="profile-section">
       <span id="profileUsername">(not logged in)</span>
     </div>
@@ -58,9 +73,9 @@
   </div>
 
   <!-- COLLAPSIBLE BOTTOM RUN CARD -->
-  <div class="run-card-container">
+  <div class="run-card-container" id="runCardContainer">
     <div class="run-card" id="runCard">
-      <div class="card-handle" onclick="toggleCardCollapse()">
+      <div class="card-handle" id="cardHandle">
         <div class="handle-left">
           <div class="distance-row">
             <span class="distance-number-small" id="handleDistance">0.00</span>
@@ -107,11 +122,22 @@
         <div class="hint-text" id="runHint">
           👤 select profile to begin
         </div>
+        <div class="extra-controls">
+          <button id="fullscreenBtn" onclick="toggleFullscreen()">⛶ Fullscreen</button>
+        </div>
       </div>
     </div>
   </div>
 
+  <!-- Toast container (gamified) -->
   <div id="toast" class="toast"></div>
+
+  <!-- Confetti canvas (hidden by default) -->
+  <canvas id="confettiCanvas" style="position: fixed; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 1000; display: none;"></canvas>
+
+  <!-- Lap celebration popup -->
+  <div id="lapPopup" class="lap-popup">LAP 1</div>
+
   <div id="userSelector"></div>
 
   <!-- Custom script -->
