@@ -1,12 +1,13 @@
 (function() {
   // --------------------------------------------------------------
-  // FINAL FIXES: buffer 100m, lap radius 50m with time cooldown
+  // LAP DETECTION IMPROVEMENTS: state machine + adaptive radius
   // --------------------------------------------------------------
   const API_BASE = 'https://kadamclashbackend.onrender.com';
   const MOVEMENT_THRESHOLD = 5;
-  const LAP_RADIUS = 50;          // meters from start to count a lap
-  const LAP_COOLDOWN_MS = 15000;   // 15 seconds between laps
-  const TERRITORY_BUFFER = 100;    // 100 meters to guarantee overlap
+  const LAP_RADIUS = 50;               // base radius from start to count a lap
+  const LAP_COOLDOWN_MS = 15000;        // 15 seconds between laps (was 600000)
+  const TERRITORY_BUFFER = 20;           // buffer for territory capture
+  const MIN_LOOP_DISTANCE = 100;         // must go at least 100m from start to count a lap
 
   let map;
   let currentPosition = null;
@@ -19,7 +20,11 @@
   let runStartTime = null;
   let runTimer = null;
   let lapCount = 0;
-  let lastLapTime = 0;             // timestamp of last lap
+  let lastLapTime = 0;                   // timestamp of last lap
+
+  // New lap‑tracking variables
+  let maxDistFromStart = 0;              // furthest distance from start so far
+  let insideStartZone = false;            // whether we are currently inside the lap zone
 
   let userMarker = null;
   let accuracyCircle = null;
@@ -350,33 +355,58 @@
     }
   }
 
-  // Run logic – simplified lap counting
+  // Run logic – improved lap counting with state machine
   function addPointToRun(pos, speedMs) {
     const now = Date.now();
     if (!runPath.length) {
       runPath.push({ lat: pos[0], lng: pos[1], timestamp: now, speed: speedMs || 0 });
-      lastLapTime = now; // first point counts as lap start
+      // Initially we are at start, so insideStartZone = true
+      insideStartZone = true;
+      maxDistFromStart = 0;
+      lastLapTime = now;
       drawRunPath();
       return;
     }
 
+    // Ignore points that are too close to the previous point (drift)
     const last = runPath[runPath.length-1];
     const lastPos = [last.lat, last.lng];
     const dist = calculateDistance(lastPos, pos);
-    if (dist < MOVEMENT_THRESHOLD && (!speedMs || speedMs < 0.5)) return; // ignore drift
+    if (dist < MOVEMENT_THRESHOLD && (!speedMs || speedMs < 0.5)) return;
 
     runPath.push({ lat: pos[0], lng: pos[1], timestamp: now, speed: speedMs || 0 });
 
-    // Lap detection: if near start and enough time passed
-    if (runPath.length > 5) {
+    // Lap detection logic
+    if (runPath.length > 1) {
       const start = [runPath[0].lat, runPath[0].lng];
       const distToStart = calculateDistance(pos, start);
-      if (distToStart <= LAP_RADIUS && (now - lastLapTime) > LAP_COOLDOWN_MS) {
-        lapCount++;
-        lapsEl.innerText = lapCount;
-        lastLapTime = now;
-        showToast(`🏁 Lap ${lapCount}!`, 'info');
+
+      // Update max distance from start
+      if (distToStart > maxDistFromStart) {
+        maxDistFromStart = distToStart;
       }
+
+      // Adaptive lap radius: use current GPS accuracy if available, otherwise base radius
+      const accuracy = accuracyCircle ? accuracyCircle.getRadius() : 20;
+      const effectiveLapRadius = Math.max(LAP_RADIUS, accuracy * 1.5);
+
+      const nowInside = (distToStart <= effectiveLapRadius);
+
+      // Lap counted on transition from outside to inside
+      if (!insideStartZone && nowInside) {
+        // Only count if we've been far enough away and cooldown passed
+        if (maxDistFromStart >= MIN_LOOP_DISTANCE && (now - lastLapTime) > LAP_COOLDOWN_MS) {
+          lapCount++;
+          lapsEl.innerText = lapCount;
+          lastLapTime = now;
+          showToast(`🏁 Lap ${lapCount}!`, 'info');
+
+          // Reset max distance for next lap (optional – allows multiple loops)
+          maxDistFromStart = 0;
+        }
+      }
+
+      insideStartZone = nowInside;
     }
 
     drawRunPath();
@@ -432,6 +462,9 @@
     runPath = [];
     lapCount = 0;
     lastLapTime = runStartTime;
+    // Initialize lap tracking state
+    maxDistFromStart = 0;
+    insideStartZone = true; // start at the start point
     pathLayer.clearLayers();
     runBtn.innerText = '⏹️ STOP RUN';
     runBtn.classList.add('running');
@@ -462,7 +495,7 @@
     try {
       const lineCoords = runPath.map(p => [p.lng, p.lat]);
       const line = turf.lineString(lineCoords);
-      // Buffer 100m for reliable overlap
+      // Buffer 20m for territory capture (you may increase this)
       const buffered = turf.buffer(line, TERRITORY_BUFFER, { units: 'meters' });
       if (!buffered || !buffered.geometry) throw new Error('Buffer failed');
       
