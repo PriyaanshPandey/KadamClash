@@ -4,10 +4,10 @@
   // --------------------------------------------------------------
   const API_BASE = 'https://kadamclashbackend.onrender.com';
   const MOVEMENT_THRESHOLD = 5;
-  const LAP_RADIUS = 50;
-  const LAP_COOLDOWN_MS = 15000;
-  const TERRITORY_BUFFER = 20;
-  const MIN_LOOP_DISTANCE = 100;
+  const LAP_RADIUS = 50;                // meters from start to count a lap
+  const LAP_COOLDOWN_MS = 15000;         // 15 seconds between laps
+  const MIN_LOOP_DISTANCE = 50;           // reduced from 100 for better accuracy
+  const LOOP_CLOSE_THRESHOLD = 30;        // max distance between start and end to consider loop closed
 
   let map;
   let currentPosition = null;
@@ -427,7 +427,7 @@
     }
   }
 
-  // Territory capture logic (same as before, with animation hooks)
+  // NEW: Simplified capture logic – only containment matters
   function evaluateRunAgainstTerritories(userPolygon, userAvgSpeed, userLaps) {
     const enemies = [];
     territoryLayer.eachLayer(layer => {
@@ -435,98 +435,49 @@
       if (layer.options.ownerId === selectedUserId) return;
 
       const enemyGeo = layer.toGeoJSON();
+      // Check if they intersect at all (to avoid unnecessary contains checks)
       const intersect = turf.intersect(userPolygon, enemyGeo);
       if (!intersect) return;
 
-      const userArea = turf.area(userPolygon);
-      const enemyArea = layer.options.territoryArea || turf.area(enemyGeo);
-      const relation = getRelation(userPolygon, enemyGeo);
+      // Determine relation
+      const userContainsEnemy = turf.booleanContains(userPolygon, enemyGeo);
+      const enemyContainsUser = turf.booleanContains(enemyGeo, userPolygon);
 
-      enemies.push({
-        layer: layer,
-        geo: enemyGeo,
-        area: enemyArea,
-        avgSpeed: layer.options.avgSpeed || 0,
-        laps: layer.options.laps || 1,
-        relation: relation,
-        userArea: userArea,
-        enemyArea: enemyArea,
-        areaRatio: userArea / enemyArea
-      });
+      if (userContainsEnemy) {
+        // User wins – will capture this enemy
+        enemies.push({
+          layer: layer,
+          geo: enemyGeo,
+          outcome: 'won'
+        });
+      } else if (enemyContainsUser) {
+        // User is inside – instant loss
+        return {
+          outcome: 'defended',
+          message: `Your run is inside ${layer.options.ownerName}'s territory – no new territory.`,
+          conqueredEnemies: []
+        };
+      } else {
+        // Overlap but no containment – loss
+        return {
+          outcome: 'defended',
+          message: `Your run overlaps ${layer.options.ownerName}'s territory but does not encircle it.`,
+          conqueredEnemies: []
+        };
+      }
     });
 
+    // If we reach here and no enemy caused a loss, check if we captured any
     if (enemies.length === 0) {
-      return { outcome: 'created', message: '✨ New territory created!', mergedPolygon: userPolygon, enemies: [] };
-    }
-
-    let allWon = true;
-    let conqueredEnemies = [];
-    let defeatMessage = '';
-
-    for (let e of enemies) {
-      const result = evaluateSingleEnemy(e, userAvgSpeed, userLaps);
-      if (result.outcome === 'lost') {
-        allWon = false;
-        defeatMessage = result.message;
-        break;
-      } else if (result.outcome === 'won' || result.outcome === 'autoWon') {
-        conqueredEnemies.push(e);
-      }
-    }
-
-    if (!allWon) {
+      return { outcome: 'created', message: '✨ New territory created!', conqueredEnemies: [] };
+    } else {
+      // We captured all enemies that were contained (should be all intersecting if no loss)
       return {
-        outcome: 'defended',
-        message: defeatMessage || '😤 Your run was too weak to overcome all enemies.',
-        mergedPolygon: null,
-        enemies: enemies
+        outcome: 'captured',
+        message: enemies.length > 1 ? '🔥 You conquered multiple territories!' : '⚔️ You defeated the enemy!',
+        conqueredEnemies: enemies.map(e => e.layer)
       };
     }
-
-    let merged = userPolygon;
-    for (let e of conqueredEnemies) {
-      try {
-        merged = turf.union(merged, e.geo);
-      } catch (err) {
-        console.warn('Union failed', err);
-      }
-    }
-
-    return {
-      outcome: 'captured',
-      message: enemies.length > 1 ? '🔥 You conquered multiple territories!' : '⚔️ You defeated the enemy!',
-      mergedPolygon: merged,
-      enemies: conqueredEnemies
-    };
-  }
-
-  function getRelation(userGeo, enemyGeo) {
-    if (turf.booleanContains(userGeo, enemyGeo)) return 'contains';
-    if (turf.booleanContains(enemyGeo, userGeo)) return 'inside';
-    return 'overlap';
-  }
-
-  function evaluateSingleEnemy(enemy, userAvgSpeed, userLaps) {
-    const { relation, areaRatio, avgSpeed: enemySpeed, laps: enemyLaps } = enemy;
-    if (relation === 'inside') {
-      return { outcome: 'lost', message: `Your run is inside ${enemy.layer.options.ownerName}'s territory – no new territory.` };
-    }
-    const sizeOk = areaRatio >= 0.8 && areaRatio <= 1.2;
-    if (relation === 'contains') {
-      if (!sizeOk) return { outcome: 'autoWon', message: '' };
-      const userScore = userAvgSpeed * 1000 + userLaps * 10;
-      const enemyScore = enemySpeed * 1000 + enemyLaps * 10;
-      return userScore > enemyScore ? { outcome: 'won', message: '' } : { outcome: 'lost', message: `😵 You were defeated by ${enemy.layer.options.ownerName}.` };
-    }
-    if (relation === 'overlap') {
-      if (!sizeOk) {
-        return { outcome: 'lost', message: `Your run overlaps ${enemy.layer.options.ownerName}'s territory but you are too ${areaRatio < 0.8 ? 'small' : 'large'} to challenge.` };
-      }
-      const userScore = userAvgSpeed * 1000 + userLaps * 10;
-      const enemyScore = enemySpeed * 1000 + enemyLaps * 10;
-      return userScore > enemyScore ? { outcome: 'won', message: '' } : { outcome: 'lost', message: `😵 You were defeated by ${enemy.layer.options.ownerName}.` };
-    }
-    return { outcome: 'lost', message: 'Unknown error.' };
   }
 
   // Map init
@@ -678,7 +629,7 @@
     handleSpeed.innerText = avg.toFixed(1);
 
     // Milestone confetti for 1km
-    if (distKm >= 1 && distKm < 1.01) { // approximate
+    if (distKm >= 1 && distKm < 1.01) {
       startConfetti();
       setTimeout(stopConfetti, 2000);
     }
@@ -734,13 +685,25 @@
     }
 
     try {
-      const lineCoords = runPath.map(p => [p.lng, p.lat]);
-      const line = turf.lineString(lineCoords);
-      const buffered = turf.buffer(line, TERRITORY_BUFFER, { units: 'meters' });
-      if (!buffered || !buffered.geometry) throw new Error('Buffer failed');
+      // Check if start and end are close enough to form a loop
+      const first = runPath[0];
+      const last = runPath[runPath.length - 1];
+      const startEndDist = calculateDistance([first.lat, first.lng], [last.lat, last.lng]);
 
-      const area = turf.area(buffered);
-      if (area < 1) throw new Error('Buffered area too small');
+      if (startEndDist > LOOP_CLOSE_THRESHOLD) {
+        showGamifiedToast('Run must end near start to form a territory', 'error', '🔄');
+        resetRunUI();
+        return;
+      }
+
+      // Create a closed polygon from the path
+      const points = runPath.map(p => [p.lng, p.lat]); // GeoJSON order: [lng, lat]
+      // Ensure polygon is closed (add first point at the end if needed)
+      if (points[0][0] !== points[points.length-1][0] || points[0][1] !== points[points.length-1][1]) {
+        points.push(points[0]);
+      }
+      const runPolygon = turf.polygon([points]);
+      const runArea = turf.area(runPolygon);
 
       const duration = Math.floor((Date.now() - runStartTime) / 1000);
       const totalDistM = runPath.slice(1).reduce((acc, _, i) => {
@@ -749,31 +712,28 @@
       const avgSpeed = (totalDistM/1000) / (duration/3600) || 0;
       const laps = lapCount || 1;
 
-      const evalResult = evaluateRunAgainstTerritories(buffered.geometry, avgSpeed, laps);
+      // Evaluate using simplified containment logic
+      const evalResult = evaluateRunAgainstTerritories(runPolygon.geometry, avgSpeed, laps);
 
       let toastType = 'info';
       if (evalResult.outcome === 'created' || evalResult.outcome === 'captured') toastType = 'success';
       else if (evalResult.outcome === 'defended') toastType = 'error';
       showGamifiedToast(evalResult.message, toastType);
 
-      // Animate conquered enemies
-      if (evalResult.outcome === 'captured' && evalResult.enemies) {
-        evalResult.enemies.forEach(e => animateDefeat(e.layer));
-        // After a short delay, show capture animation on new territory (will be added after loadTerritories)
-        setTimeout(() => {
-          // We'll trigger animation after reload
-        }, 600);
+      // Animate conquered enemies (if any)
+      if (evalResult.outcome === 'captured' && evalResult.conqueredEnemies) {
+        evalResult.conqueredEnemies.forEach(layer => animateDefeat(layer));
       }
 
+      // Only send to backend if we created or captured something
       if (evalResult.outcome === 'created' || evalResult.outcome === 'captured') {
-        const finalPolygon = evalResult.mergedPolygon || buffered.geometry;
         const payload = {
           userId: selectedUserId,
-          polygon: finalPolygon,
+          polygon: runPolygon.geometry,
           duration: duration,
           laps: laps,
           avgSpeed: avgSpeed,
-          outcome: evalResult.outcome
+          outcome: evalResult.outcome  // optional hint
         };
 
         console.log('🚀 Submitting run:', JSON.stringify(payload, null, 2));
@@ -785,11 +745,14 @@
         });
         const result = await res.json();
         console.log('📦 Server response:', result);
+      } else {
+        console.log('Run did not result in territory change – no request sent.');
       }
 
+      // Reload territories to reflect changes
       await loadTerritories();
 
-      // After reload, find the newly added territory (the user's) and animate it
+      // Animate newly created/captured territory (the user's)
       if (evalResult.outcome === 'captured' || evalResult.outcome === 'created') {
         territoryLayer.eachLayer(layer => {
           if (layer.options.ownerId === selectedUserId) {
