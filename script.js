@@ -428,57 +428,48 @@
   }
 
   // NEW: Simplified capture logic – only containment matters
-  function evaluateRunAgainstTerritories(userPolygon, userAvgSpeed, userLaps) {
-    const enemies = [];
-    territoryLayer.eachLayer(layer => {
-      if (!(layer instanceof L.Polygon)) return;
-      if (layer.options.ownerId === selectedUserId) return;
+ function evaluateRunAgainstTerritories(userPolygon, userAvgSpeed, userLaps) {
+  let anyLoss = false;
+  let lossMessage = '';
+  const conqueredEnemies = [];
 
-      const enemyGeo = layer.toGeoJSON();
-      // Check if they intersect at all (to avoid unnecessary contains checks)
-      const intersect = turf.intersect(userPolygon, enemyGeo);
-      if (!intersect) return;
+  const layers = territoryLayer.getLayers();
+  for (let layer of layers) {
+    if (!(layer instanceof L.Polygon)) continue;
+    if (layer.options.ownerId === selectedUserId) continue;
 
-      // Determine relation
-      const userContainsEnemy = turf.booleanContains(userPolygon, enemyGeo);
-      const enemyContainsUser = turf.booleanContains(enemyGeo, userPolygon);
+    const enemyGeo = layer.toGeoJSON();
+    const intersect = turf.intersect(userPolygon, enemyGeo);
+    if (!intersect) continue; // no overlap
 
-      if (userContainsEnemy) {
-        // User wins – will capture this enemy
-        enemies.push({
-          layer: layer,
-          geo: enemyGeo,
-          outcome: 'won'
-        });
-      } else if (enemyContainsUser) {
-        // User is inside – instant loss
-        return {
-          outcome: 'defended',
-          message: `Your run is inside ${layer.options.ownerName}'s territory – no new territory.`,
-          conqueredEnemies: []
-        };
-      } else {
-        // Overlap but no containment – loss
-        return {
-          outcome: 'defended',
-          message: `Your run overlaps ${layer.options.ownerName}'s territory but does not encircle it.`,
-          conqueredEnemies: []
-        };
-      }
-    });
+    const userContainsEnemy = turf.booleanContains(userPolygon, enemyGeo);
+    const enemyContainsUser = turf.booleanContains(enemyGeo, userPolygon);
 
-    // If we reach here and no enemy caused a loss, check if we captured any
-    if (enemies.length === 0) {
-      return { outcome: 'created', message: '✨ New territory created!', conqueredEnemies: [] };
+    if (userContainsEnemy) {
+      conqueredEnemies.push(layer);
+    } else if (enemyContainsUser) {
+      anyLoss = true;
+      lossMessage = `Your run is inside ${layer.options.ownerName}'s territory – no new territory.`;
+      break;
     } else {
-      // We captured all enemies that were contained (should be all intersecting if no loss)
-      return {
-        outcome: 'captured',
-        message: enemies.length > 1 ? '🔥 You conquered multiple territories!' : '⚔️ You defeated the enemy!',
-        conqueredEnemies: enemies.map(e => e.layer)
-      };
+      anyLoss = true;
+      lossMessage = `Your run overlaps ${layer.options.ownerName}'s territory but does not encircle it.`;
+      break;
     }
   }
+
+  if (anyLoss) {
+    return { outcome: 'defended', message: lossMessage, conqueredEnemies: [] };
+  } else if (conqueredEnemies.length > 0) {
+    return {
+      outcome: 'captured',
+      message: conqueredEnemies.length > 1 ? '🔥 You conquered multiple territories!' : '⚔️ You defeated the enemy!',
+      conqueredEnemies: conqueredEnemies
+    };
+  } else {
+    return { outcome: 'created', message: '✨ New territory created!', conqueredEnemies: [] };
+  }
+}
 
   // Map init
   function initMap() {
