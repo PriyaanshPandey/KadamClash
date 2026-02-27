@@ -7,7 +7,8 @@
   const LAP_RADIUS = 50;                // meters from start to count a lap
   const LAP_COOLDOWN_MS = 15000;         // 15 seconds between laps
   const MIN_LOOP_DISTANCE = 50;           // reduced from 100 for better accuracy
-  const LOOP_CLOSE_THRESHOLD = 30;        // max distance between start and end to consider loop closed
+  const LOOP_CLOSE_THRESHOLD = 100;        // max distance between start and end to consider loop closed
+  const HULL_MAX_EDGE = 50;                // max edge length for concave hull (meters)
 
   let map;
   let currentPosition = null;
@@ -25,6 +26,7 @@
   let insideStartZone = false;
 
   let userMarker = null;
+  let startMarker = null;                 // visual indicator at start point
   let accuracyCircle = null;
   let pathLayer = L.layerGroup();
   let territoryLayer = L.layerGroup();
@@ -427,53 +429,53 @@
     }
   }
 
-  // NEW: Simplified capture logic – only containment matters
- function evaluateRunAgainstTerritories(userPolygon, userAvgSpeed, userLaps) {
-  let anyLoss = false;
-  let lossMessage = '';
-  const conqueredEnemies = [];
+  // Simplified capture logic – only containment matters
+  function evaluateRunAgainstTerritories(userPolygon, userAvgSpeed, userLaps) {
+    let anyLoss = false;
+    let lossMessage = '';
+    const conqueredEnemies = [];
 
-  const layers = territoryLayer.getLayers();
-  for (let layer of layers) {
-    if (!(layer instanceof L.Polygon)) continue;
-    if (layer.options.ownerId === selectedUserId) continue;
+    const layers = territoryLayer.getLayers();
+    for (let layer of layers) {
+      if (!(layer instanceof L.Polygon)) continue;
+      if (layer.options.ownerId === selectedUserId) continue;
 
-    const enemyGeo = layer.toGeoJSON();
-    const intersect = turf.intersect(userPolygon, enemyGeo);
-    if (!intersect) continue; // no overlap
+      const enemyGeo = layer.toGeoJSON();
+      const intersect = turf.intersect(userPolygon, enemyGeo);
+      if (!intersect) continue; // no overlap
 
-    const userContainsEnemy = turf.booleanContains(userPolygon, enemyGeo);
-    const enemyContainsUser = turf.booleanContains(enemyGeo, userPolygon);
+      const userContainsEnemy = turf.booleanContains(userPolygon, enemyGeo);
+      const enemyContainsUser = turf.booleanContains(enemyGeo, userPolygon);
 
-    if (userContainsEnemy) {
-      conqueredEnemies.push(layer);
-    } else if (enemyContainsUser) {
-      anyLoss = true;
-      lossMessage = `Your run is inside ${layer.options.ownerName}'s territory – no new territory.`;
-      break;
+      if (userContainsEnemy) {
+        conqueredEnemies.push(layer);
+      } else if (enemyContainsUser) {
+        anyLoss = true;
+        lossMessage = `Your run is inside ${layer.options.ownerName}'s territory – no new territory.`;
+        break;
+      } else {
+        anyLoss = true;
+        lossMessage = `Your run overlaps ${layer.options.ownerName}'s territory but does not encircle it.`;
+        break;
+      }
+    }
+
+    if (anyLoss) {
+      return { outcome: 'defended', message: lossMessage, conqueredEnemies: [] };
+    } else if (conqueredEnemies.length > 0) {
+      return {
+        outcome: 'captured',
+        message: conqueredEnemies.length > 1 ? '🔥 You conquered multiple territories!' : '⚔️ You defeated the enemy!',
+        conqueredEnemies: conqueredEnemies
+      };
     } else {
-      anyLoss = true;
-      lossMessage = `Your run overlaps ${layer.options.ownerName}'s territory but does not encircle it.`;
-      break;
+      return { outcome: 'created', message: '✨ New territory created!', conqueredEnemies: [] };
     }
   }
 
-  if (anyLoss) {
-    return { outcome: 'defended', message: lossMessage, conqueredEnemies: [] };
-  } else if (conqueredEnemies.length > 0) {
-    return {
-      outcome: 'captured',
-      message: conqueredEnemies.length > 1 ? '🔥 You conquered multiple territories!' : '⚔️ You defeated the enemy!',
-      conqueredEnemies: conqueredEnemies
-    };
-  } else {
-    return { outcome: 'created', message: '✨ New territory created!', conqueredEnemies: [] };
-  }
-}
-
   // Map init
   function initMap() {
-    map = L.map('map', { zoomControl: false }).setView([20, 0], 2);
+    map = L.map('map', { zoomControl: false, maxZoom: 20 }).setView([20, 0], 2);
     L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
       attribution: '© OpenStreetMap'
     }).addTo(map);
@@ -505,10 +507,15 @@
   function initPosition(pos) {
     const { latitude, longitude, accuracy } = pos.coords;
     currentPosition = [latitude, longitude];
-    map.setView(currentPosition, 18);
+    map.setView(currentPosition, 19); // more zoomed
 
+    // Enhanced user marker with runner icon
     userMarker = L.marker(currentPosition, {
-      icon: L.divIcon({ className: 'user-marker', html: '<div></div>', iconSize: [22,22] })
+      icon: L.divIcon({
+        className: 'user-marker',
+        html: '<div></div>',
+        iconSize: [32, 32]
+      })
     }).addTo(map);
 
     accuracyCircle = L.circle(currentPosition, {
@@ -551,6 +558,15 @@
       maxDistFromStart = 0;
       lastLapTime = now;
       drawRunPath();
+      // Create a visual start marker
+      if (startMarker) map.removeLayer(startMarker);
+      startMarker = L.circleMarker([pos[0], pos[1]], {
+        radius: 10,
+        color: '#22c55e',
+        fillColor: '#22c55e',
+        fillOpacity: 0.8,
+        className: 'pulsing-start'
+      }).addTo(map);
       return;
     }
 
@@ -573,6 +589,17 @@
       const effectiveLapRadius = Math.max(LAP_RADIUS, accuracy * 1.5);
       const nowInside = (distToStart <= effectiveLapRadius);
 
+      // Visual feedback for being close to start
+      if (startMarker) {
+        if (distToStart <= LOOP_CLOSE_THRESHOLD) {
+          startMarker.setStyle({ color: '#fbbf24', fillColor: '#fbbf24' });
+          runHint.innerText = 'Close enough to finish!';
+        } else {
+          startMarker.setStyle({ color: '#22c55e', fillColor: '#22c55e' });
+          runHint.innerText = 'Run back near the start to claim territory';
+        }
+      }
+
       if (!insideStartZone && nowInside) {
         if (maxDistFromStart >= MIN_LOOP_DISTANCE && (now - lastLapTime) > LAP_COOLDOWN_MS) {
           lapCount++;
@@ -594,9 +621,15 @@
     pathLayer.clearLayers();
     if (runPath.length < 2) return;
     const latlngs = runPath.map(p => [p.lat, p.lng]);
-    L.polyline(latlngs, { color: '#3b82f6', weight: 5, opacity: 0.8, className: 'animated-path' }).addTo(pathLayer);
-    L.circleMarker([runPath[0].lat, runPath[0].lng], { radius: 6, color: '#22c55e', fillColor: '#22c55e', fillOpacity: 1, className: 'pulsing-start' }).addTo(pathLayer);
-    L.circleMarker([runPath[runPath.length-1].lat, runPath[runPath.length-1].lng], { radius: 6, color: '#3b82f6', fillColor: '#3b82f6', fillOpacity: 1 }).addTo(pathLayer);
+    // Solid line – no className
+    L.polyline(latlngs, { color: '#3b82f6', weight: 5, opacity: 0.8 }).addTo(pathLayer);
+    // Start marker is already separate, so we don't add another here
+    L.circleMarker([runPath[runPath.length-1].lat, runPath[runPath.length-1].lng], {
+      radius: 6,
+      color: '#3b82f6',
+      fillColor: '#3b82f6',
+      fillOpacity: 1
+    }).addTo(pathLayer);
   }
 
   function updateRunStats() {
@@ -648,10 +681,12 @@
     maxDistFromStart = 0;
     insideStartZone = true;
     pathLayer.clearLayers();
+    if (startMarker) map.removeLayer(startMarker);
+    startMarker = null;
     runBtn.innerText = '⏹️ STOP RUN';
     runBtn.classList.add('running');
     runCard.classList.add('running');
-    runHint.innerText = '🏃 moving – claim territory';
+    runHint.innerText = '🏃 moving – run near start to finish';
     runStatusSpan.innerText = 'running';
     runnerDisplay.innerHTML = `${selectedUsername} <small>running</small>`;
     addPointToRun(currentPosition, 0);
@@ -660,181 +695,170 @@
     if (soundEnabled) sounds.start.play();
   }
 
-async function stopRun() {
-  isRunning = false;
-  clearInterval(runTimer);
-  runBtn.innerText = '▶ START RUN';
-  runBtn.classList.remove('running');
-  runCard.classList.remove('running');
-  runHint.innerText = 'Processing run...';
-  runBtn.disabled = true;
+  async function stopRun() {
+    isRunning = false;
+    clearInterval(runTimer);
+    runBtn.innerText = '▶ START RUN';
+    runBtn.classList.remove('running');
+    runCard.classList.remove('running');
+    runHint.innerText = 'Processing run...';
+    runBtn.disabled = true;
 
-  if (runPath.length < 5) {
-    showGamifiedToast('Run too short (need more movement)', 'error', '⚠️');
-    resetRunUI();
-    return;
-  }
-
-  try {
-    // Check if start and end are close enough to form a loop
-    const first = runPath[0];
-    const last = runPath[runPath.length - 1];
-    const startEndDist = calculateDistance([first.lat, first.lng], [last.lat, last.lng]);
-    console.log(`Start-end distance: ${startEndDist.toFixed(1)}m (threshold: ${LOOP_CLOSE_THRESHOLD}m)`);
-
-    if (startEndDist > LOOP_CLOSE_THRESHOLD) {
-      showGamifiedToast('Run must end near start to form a territory', 'error', '🔄');
+    if (runPath.length < 5) {
+      showGamifiedToast('Run too short (need more movement)', 'error', '⚠️');
       resetRunUI();
       return;
     }
 
-    // Create a closed polygon from the path
-    const points = runPath.map(p => [p.lng, p.lat]); // GeoJSON order: [lng, lat]
-    // Ensure polygon is closed (add first point at the end if needed)
-    if (points[0][0] !== points[points.length-1][0] || points[0][1] !== points[points.length-1][1]) {
-      points.push(points[0]);
-    }
-
-    console.log(`Polygon has ${points.length} points`);
-
-    // Validate minimum number of distinct points
-    if (points.length < 4) {
-      showGamifiedToast('Not enough points to form a polygon', 'error', '⚠️');
-      resetRunUI();
-      return;
-    }
-
-    let runPolygon;
     try {
-      runPolygon = turf.polygon([points]);
-    } catch (e) {
-      console.error('Failed to create polygon:', e);
-      showGamifiedToast('Invalid loop shape', 'error', '⚠️');
-      resetRunUI();
-      return;
-    }
+      // Check if start and end are close enough to form a loop
+      const first = runPath[0];
+      const last = runPath[runPath.length - 1];
+      const startEndDist = calculateDistance([first.lat, first.lng], [last.lat, last.lng]);
+      console.log(`Start-end distance: ${startEndDist.toFixed(1)}m (threshold: ${LOOP_CLOSE_THRESHOLD}m)`);
 
-    const runArea = turf.area(runPolygon);
-    console.log(`Run area: ${runArea.toFixed(1)} m²`);
-
-    if (runArea < 1) {
-      showGamifiedToast('Loop area too small to claim', 'error', '⚠️');
-      resetRunUI();
-      return;
-    }
-
-    const duration = Math.floor((Date.now() - runStartTime) / 1000);
-    const totalDistM = runPath.slice(1).reduce((acc, _, i) => {
-      return acc + calculateDistance([runPath[i].lat, runPath[i].lng], [runPath[i+1].lat, runPath[i+1].lng]);
-    }, 0);
-    const avgSpeed = (totalDistM/1000) / (duration/3600) || 0;
-    const laps = lapCount || 1;
-
-    console.log(`Run stats: duration=${duration}s, distance=${(totalDistM/1000).toFixed(2)}km, avgSpeed=${avgSpeed.toFixed(1)}km/h, laps=${laps}`);
-
-    // Evaluate using simplified containment logic
-    const evalResult = evaluateRunAgainstTerritories(runPolygon.geometry, avgSpeed, laps);
-    console.log('Frontend evaluation result:', evalResult);
-
-    // If defended, show message immediately and return
-    if (evalResult.outcome === 'defended') {
-      showGamifiedToast(evalResult.message, 'error');
-      await loadTerritories(); // reload just in case (though no change)
-      resetRunUI();
-      return;
-    }
-
-    // For created or captured, send to backend
-    if (evalResult.outcome === 'created' || evalResult.outcome === 'captured') {
-      const payload = {
-        userId: selectedUserId,
-        polygon: runPolygon.geometry,
-        duration: duration,
-        laps: laps,
-        avgSpeed: avgSpeed,
-        outcome: evalResult.outcome  // optional hint
-      };
-
-      console.log('🚀 Submitting run to backend:', JSON.stringify(payload, null, 2));
-
-      let res;
-      try {
-        res = await fetch(`${API_BASE}/api/run`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-      } catch (fetchError) {
-        console.error('Network error while submitting run:', fetchError);
-        showGamifiedToast('Network error – please check your connection', 'error', '🌐');
+      if (startEndDist > LOOP_CLOSE_THRESHOLD) {
+        showGamifiedToast('Run must end near start to form a territory', 'error', '🔄');
         resetRunUI();
         return;
       }
 
-      console.log('Response status:', res.status);
+      // Create a concave hull from all points – handles self-intersecting paths
+      const points = runPath.map(p => turf.point([p.lng, p.lat]));
+      const fc = turf.featureCollection(points);
+      const hull = turf.concave(fc, { units: 'meters', maxEdge: HULL_MAX_EDGE });
 
-      if (!res.ok) {
-        let errorText = `HTTP ${res.status}`;
+      if (!hull) {
+        showGamifiedToast('Could not create territory shape – try a cleaner loop', 'error', '⚠️');
+        resetRunUI();
+        return;
+      }
+
+      const runPolygon = hull;
+      const runArea = turf.area(runPolygon);
+      console.log(`Run area (hull): ${runArea.toFixed(1)} m²`);
+
+      if (runArea < 1) {
+        showGamifiedToast('Loop area too small to claim', 'error', '⚠️');
+        resetRunUI();
+        return;
+      }
+
+      const duration = Math.floor((Date.now() - runStartTime) / 1000);
+      const totalDistM = runPath.slice(1).reduce((acc, _, i) => {
+        return acc + calculateDistance([runPath[i].lat, runPath[i].lng], [runPath[i+1].lat, runPath[i+1].lng]);
+      }, 0);
+      const avgSpeed = (totalDistM/1000) / (duration/3600) || 0;
+      const laps = lapCount || 1;
+
+      console.log(`Run stats: duration=${duration}s, distance=${(totalDistM/1000).toFixed(2)}km, avgSpeed=${avgSpeed.toFixed(1)}km/h, laps=${laps}`);
+
+      // Evaluate using simplified containment logic
+      const evalResult = evaluateRunAgainstTerritories(runPolygon.geometry, avgSpeed, laps);
+      console.log('Frontend evaluation result:', evalResult);
+
+      // If defended, show message immediately and return
+      if (evalResult.outcome === 'defended') {
+        showGamifiedToast(evalResult.message, 'error');
+        await loadTerritories(); // reload just in case (though no change)
+        resetRunUI();
+        return;
+      }
+
+      // For created or captured, send to backend
+      if (evalResult.outcome === 'created' || evalResult.outcome === 'captured') {
+        const payload = {
+          userId: selectedUserId,
+          polygon: runPolygon.geometry,
+          duration: duration,
+          laps: laps,
+          avgSpeed: avgSpeed,
+          outcome: evalResult.outcome  // optional hint
+        };
+
+        console.log('🚀 Submitting run to backend:', JSON.stringify(payload, null, 2));
+
+        let res;
         try {
-          const errorData = await res.json();
-          errorText = errorData.error || errorText;
-        } catch (e) {
-          // response not JSON
+          res = await fetch(`${API_BASE}/api/run`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+        } catch (fetchError) {
+          console.error('Network error while submitting run:', fetchError);
+          showGamifiedToast('Network error – please check your connection', 'error', '🌐');
+          resetRunUI();
+          return;
         }
-        console.error('Server error:', errorText);
-        showGamifiedToast(`Server error: ${errorText}`, 'error', '❌');
-        resetRunUI();
-        return;
-      }
 
-      let result;
-      try {
-        result = await res.json();
-        console.log('📦 Server response:', result);
-      } catch (jsonError) {
-        console.error('Failed to parse server response:', jsonError);
-        showGamifiedToast('Invalid server response', 'error', '❌');
-        resetRunUI();
-        return;
-      }
+        console.log('Response status:', res.status);
 
-      // Now show success message based on server response
-      if (result.created) {
-        showGamifiedToast('✨ New territory created!', 'success');
-      } else if (result.captured) {
-        const msg = result.previousOwner
-          ? `⚔️ You defeated ${result.previousOwner}!`
-          : '⚔️ Territory captured!';
-        showGamifiedToast(msg, 'success');
+        if (!res.ok) {
+          let errorText = `HTTP ${res.status}`;
+          try {
+            const errorData = await res.json();
+            errorText = errorData.error || errorText;
+          } catch (e) {}
+          console.error('Server error:', errorText);
+          showGamifiedToast(`Server error: ${errorText}`, 'error', '❌');
+          resetRunUI();
+          return;
+        }
+
+        let result;
+        try {
+          result = await res.json();
+          console.log('📦 Server response:', result);
+        } catch (jsonError) {
+          console.error('Failed to parse server response:', jsonError);
+          showGamifiedToast('Invalid server response', 'error', '❌');
+          resetRunUI();
+          return;
+        }
+
+        // Show success message based on server response
+        if (result.created) {
+          showGamifiedToast('✨ New territory created!', 'success');
+        } else if (result.captured) {
+          const msg = result.previousOwner
+            ? `⚔️ You defeated ${result.previousOwner}!`
+            : '⚔️ Territory captured!';
+          showGamifiedToast(msg, 'success');
+        } else {
+          showGamifiedToast('🏃 Run recorded (no change)', 'info');
+        }
+
+        // Reload territories to reflect changes
+        await loadTerritories();
+
+        // Animate newly acquired territory (the user's)
+        territoryLayer.eachLayer(layer => {
+          if (layer.options.ownerId === selectedUserId) {
+            animateCapture(layer);
+          }
+        });
+
       } else {
-        showGamifiedToast('🏃 Run recorded (no change)', 'info');
+        console.warn('Unexpected outcome:', evalResult);
+        showGamifiedToast('Unexpected outcome', 'error');
       }
 
-      // Reload territories to reflect changes
-      await loadTerritories();
-
-      // Animate newly acquired territory (the user's)
-      territoryLayer.eachLayer(layer => {
-        if (layer.options.ownerId === selectedUserId) {
-          animateCapture(layer);
-        }
-      });
-
-    } else {
-      console.warn('Unexpected outcome:', evalResult);
-      showGamifiedToast('Unexpected outcome', 'error');
+    } catch (err) {
+      console.error('Unhandled error in stopRun:', err);
+      showGamifiedToast('Unexpected error: ' + err.message, 'error', '❌');
+    } finally {
+      resetRunUI();
     }
-
-  } catch (err) {
-    console.error('Unhandled error in stopRun:', err);
-    showGamifiedToast('Unexpected error: ' + err.message, 'error', '❌');
-  } finally {
-    resetRunUI();
   }
-}
+
   function resetRunUI() {
     runPath = [];
     pathLayer.clearLayers();
+    if (startMarker) {
+      map.removeLayer(startMarker);
+      startMarker = null;
+    }
     distanceEl.innerText = '0.00';
     handleDistance.innerText = '0.00';
     durationEl.innerText = '00:00';
