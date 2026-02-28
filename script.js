@@ -729,26 +729,36 @@ if (runArea < 200) {
       console.log(`Run stats: duration=${duration}s, distance=${(totalDistM/1000).toFixed(2)}km, avgSpeed=${avgSpeed.toFixed(1)}km/h, laps=${laps}`);
 
       // Evaluate using simplified containment logic
-      const evalResult = evaluateRunAgainstTerritories(runPolygon.geometry, avgSpeed, laps);
-      console.log('Frontend evaluation result:', evalResult);
-
-      // If defended, show message immediately and return
-      if (evalResult.outcome === 'defended') {
-        showGamifiedToast(evalResult.message, 'error');
-        await loadTerritories(); // reload just in case (though no change)
-        resetRunUI();
-        return;
-      }
-
-      // For created or captured, send to backend
-      if (evalResult.outcome === 'created' || evalResult.outcome === 'captured') {
-       const payload = {
+     const payload = {
   userId: selectedUserId,
   coordinates: coords,
-  duration: duration,
-  laps: laps,
-  avgSpeed: avgSpeed
+  duration,
+  laps,
+  avgSpeed
 };
+
+const res = await fetch(`${API_BASE}/api/run`, {
+  method: 'POST',
+  headers: { 'Content-Type': 'application/json' },
+  body: JSON.stringify(payload)
+});
+
+const result = await res.json();
+
+if (result.defended) {
+  showGamifiedToast('Territory defended!', 'error');
+} else if (result.captured) {
+  showGamifiedToast(
+    result.previousOwner
+      ? `⚔️ You defeated ${result.previousOwner}!`
+      : '⚔️ Territory captured!',
+    'success'
+  );
+} else {
+  showGamifiedToast('✨ New territory created!', 'success');
+}
+
+await loadTerritories();
 
         console.log('🚀 Submitting run to backend:', JSON.stringify(payload, null, 2));
 
