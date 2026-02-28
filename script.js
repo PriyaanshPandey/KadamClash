@@ -429,21 +429,7 @@
     }
   }
 
-  // Simplified capture logic – only containment matters
- }
-
-    if (anyLoss) {
-      return { outcome: 'defended', message: lossMessage, conqueredEnemies: [] };
-    } else if (conqueredEnemies.length > 0) {
-      return {
-        outcome: 'captured',
-        message: conqueredEnemies.length > 1 ? '🔥 You conquered multiple territories!' : '⚔️ You defeated the enemy!',
-        conqueredEnemies: conqueredEnemies
-      };
-    } else {
-      return { outcome: 'created', message: '✨ New territory created!', conqueredEnemies: [] };
-    }
-  }
+  
 
   // Map init
   function initMap() {
@@ -791,83 +777,7 @@
   }
 }
 
-await loadTerritories();
 
-        console.log('🚀 Submitting run to backend:', JSON.stringify(payload, null, 2));
-
-        let res;
-        try {
-          res = await fetch(`${API_BASE}/api/run`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-          });
-        } catch (fetchError) {
-          console.error('Network error while submitting run:', fetchError);
-          showGamifiedToast('Network error – please check your connection', 'error', '🌐');
-          resetRunUI();
-          return;
-        }
-
-        console.log('Response status:', res.status);
-
-        if (!res.ok) {
-          let errorText = `HTTP ${res.status}`;
-          try {
-            const errorData = await res.json();
-            errorText = errorData.error || errorText;
-          } catch (e) {}
-          console.error('Server error:', errorText);
-          showGamifiedToast(`Server error: ${errorText}`, 'error', '❌');
-          resetRunUI();
-          return;
-        }
-
-        let result;
-        try {
-          result = await res.json();
-          console.log('📦 Server response:', result);
-        } catch (jsonError) {
-          console.error('Failed to parse server response:', jsonError);
-          showGamifiedToast('Invalid server response', 'error', '❌');
-          resetRunUI();
-          return;
-        }
-
-        // Show success message based on server response
-        if (result.created) {
-          showGamifiedToast('✨ New territory created!', 'success');
-        } else if (result.captured) {
-          const msg = result.previousOwner
-            ? `⚔️ You defeated ${result.previousOwner}!`
-            : '⚔️ Territory captured!';
-          showGamifiedToast(msg, 'success');
-        } else {
-          showGamifiedToast('🏃 Run recorded (no change)', 'info');
-        }
-
-        // Reload territories to reflect changes
-        await loadTerritories();
-
-        // Animate newly acquired territory (the user's)
-        territoryLayer.eachLayer(layer => {
-          if (layer.options.ownerId === selectedUserId) {
-            animateCapture(layer);
-          }
-        });
-
-      } else {
-        console.warn('Unexpected outcome:', evalResult);
-        showGamifiedToast('Unexpected outcome', 'error');
-      }
-
-    } catch (err) {
-      console.error('Unhandled error in stopRun:', err);
-      showGamifiedToast('Unexpected error: ' + err.message, 'error', '❌');
-    } finally {
-      resetRunUI();
-    }
-  }
 
   function resetRunUI() {
     runPath = [];
