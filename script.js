@@ -430,35 +430,7 @@
   }
 
   // Simplified capture logic – only containment matters
-  function evaluateRunAgainstTerritories(userPolygon, userAvgSpeed, userLaps) {
-    let anyLoss = false;
-    let lossMessage = '';
-    const conqueredEnemies = [];
-
-    const layers = territoryLayer.getLayers();
-    for (let layer of layers) {
-      if (!(layer instanceof L.Polygon)) continue;
-      if (layer.options.ownerId === selectedUserId) continue;
-
-      const enemyGeo = layer.toGeoJSON();
-      const intersect = turf.intersect(userPolygon, enemyGeo);
-      if (!intersect) continue; // no overlap
-
-      const userContainsEnemy = turf.booleanContains(userPolygon, enemyGeo);
-      const enemyContainsUser = turf.booleanContains(enemyGeo, userPolygon);
-
-      if (userContainsEnemy) {
-        conqueredEnemies.push(layer);
-      } else if (enemyContainsUser) {
-        anyLoss = true;
-        lossMessage = `Your run is inside ${layer.options.ownerName}'s territory – no new territory.`;
-        break;
-      } else {
-        anyLoss = true;
-        lossMessage = `Your run overlaps ${layer.options.ownerName}'s territory but does not encircle it.`;
-        break;
-      }
-    }
+ }
 
     if (anyLoss) {
       return { outcome: 'defended', message: lossMessage, conqueredEnemies: [] };
@@ -724,26 +696,29 @@
       }
 
       // Create a concave hull from all points – handles self-intersecting paths
-      const points = runPath.map(p => turf.point([p.lng, p.lat]));
-      const fc = turf.featureCollection(points);
-      const hull = turf.concave(fc, { units: 'meters', maxEdge: HULL_MAX_EDGE });
+    const coords = runPath.map(p => [p.lng, p.lat]);
 
-      if (!hull) {
-        showGamifiedToast('Could not create territory shape – try a cleaner loop', 'error', '⚠️');
-        resetRunUI();
-        return;
-      }
+// close loop
+const first = coords[0];
+const last = coords[coords.length - 1];
+if (first[0] !== last[0] || first[1] !== last[1]) {
+  coords.push(first);
+}
 
-      const runPolygon = hull;
-      const runArea = turf.area(runPolygon);
-      console.log(`Run area (hull): ${runArea.toFixed(1)} m²`);
+const runPolygon = {
+  type: "Polygon",
+  coordinates: [coords]
+};
 
-      if (runArea < 1) {
-        showGamifiedToast('Loop area too small to claim', 'error', '⚠️');
-        resetRunUI();
-        return;
-      }
+const runArea = turf.area(runPolygon);
 
+if (runArea < 200) {
+  showGamifiedToast('Territory too small', 'error');
+  resetRunUI();
+  return;
+}
+
+    
       const duration = Math.floor((Date.now() - runStartTime) / 1000);
       const totalDistM = runPath.slice(1).reduce((acc, _, i) => {
         return acc + calculateDistance([runPath[i].lat, runPath[i].lng], [runPath[i+1].lat, runPath[i+1].lng]);
@@ -767,14 +742,13 @@
 
       // For created or captured, send to backend
       if (evalResult.outcome === 'created' || evalResult.outcome === 'captured') {
-        const payload = {
-          userId: selectedUserId,
-          polygon: runPolygon.geometry,
-          duration: duration,
-          laps: laps,
-          avgSpeed: avgSpeed,
-          outcome: evalResult.outcome  // optional hint
-        };
+       const payload = {
+  userId: selectedUserId,
+  coordinates: coords,
+  duration: duration,
+  laps: laps,
+  avgSpeed: avgSpeed
+};
 
         console.log('🚀 Submitting run to backend:', JSON.stringify(payload, null, 2));
 
