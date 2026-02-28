@@ -668,94 +668,127 @@
   }
 
   async function stopRun() {
-    isRunning = false;
-    clearInterval(runTimer);
-    runBtn.innerText = '▶ START RUN';
-    runBtn.classList.remove('running');
-    runCard.classList.remove('running');
-    runHint.innerText = 'Processing run...';
-    runBtn.disabled = true;
+  isRunning = false;
+  clearInterval(runTimer);
+  runBtn.innerText = '▶ START RUN';
+  runBtn.classList.remove('running');
+  runCard.classList.remove('running');
+  runHint.innerText = 'Processing run...';
+  runBtn.disabled = true;
 
-    if (runPath.length < 5) {
-      showGamifiedToast('Run too short (need more movement)', 'error', '⚠️');
+  if (runPath.length < 5) {
+    showGamifiedToast('Run too short (need more movement)', 'error', '⚠️');
+    resetRunUI();
+    return;
+  }
+
+  try {
+    const firstPoint = runPath[0];
+    const lastPoint = runPath[runPath.length - 1];
+
+    const startEndDist = calculateDistance(
+      [firstPoint.lat, firstPoint.lng],
+      [lastPoint.lat, lastPoint.lng]
+    );
+
+    if (startEndDist > LOOP_CLOSE_THRESHOLD) {
+      showGamifiedToast('Run must end near start to form territory', 'error', '🔄');
       resetRunUI();
       return;
     }
 
-    try {
-      // Check if start and end are close enough to form a loop
-      const first = runPath[0];
-      const last = runPath[runPath.length - 1];
-      const startEndDist = calculateDistance([first.lat, first.lng], [last.lat, last.lng]);
-      console.log(`Start-end distance: ${startEndDist.toFixed(1)}m (threshold: ${LOOP_CLOSE_THRESHOLD}m)`);
-
-      if (startEndDist > LOOP_CLOSE_THRESHOLD) {
-        showGamifiedToast('Run must end near start to form a territory', 'error', '🔄');
-        resetRunUI();
-        return;
-      }
-
-      // Create a concave hull from all points – handles self-intersecting paths
     const coords = runPath.map(p => [p.lng, p.lat]);
 
-// close loop
-const first = coords[0];
-const last = coords[coords.length - 1];
-if (first[0] !== last[0] || first[1] !== last[1]) {
-  coords.push(first);
-}
+    // Close loop
+    if (
+      coords[0][0] !== coords[coords.length - 1][0] ||
+      coords[0][1] !== coords[coords.length - 1][1]
+    ) {
+      coords.push(coords[0]);
+    }
 
-const runPolygon = {
-  type: "Polygon",
-  coordinates: [coords]
-};
+    const runPolygon = {
+      type: "Polygon",
+      coordinates: [coords]
+    };
 
-const runArea = turf.area(runPolygon);
+    const runArea = turf.area(runPolygon);
 
-if (runArea < 200) {
-  showGamifiedToast('Territory too small', 'error');
-  resetRunUI();
-  return;
-}
+    if (runArea < 200) {
+      showGamifiedToast('Territory too small', 'error');
+      resetRunUI();
+      return;
+    }
 
-    
-      const duration = Math.floor((Date.now() - runStartTime) / 1000);
-      const totalDistM = runPath.slice(1).reduce((acc, _, i) => {
-        return acc + calculateDistance([runPath[i].lat, runPath[i].lng], [runPath[i+1].lat, runPath[i+1].lng]);
-      }, 0);
-      const avgSpeed = (totalDistM/1000) / (duration/3600) || 0;
-      const laps = lapCount || 1;
+    const duration = Math.floor((Date.now() - runStartTime) / 1000);
 
-      console.log(`Run stats: duration=${duration}s, distance=${(totalDistM/1000).toFixed(2)}km, avgSpeed=${avgSpeed.toFixed(1)}km/h, laps=${laps}`);
+    let totalDistM = 0;
+    for (let i = 1; i < runPath.length; i++) {
+      totalDistM += calculateDistance(
+        [runPath[i - 1].lat, runPath[i - 1].lng],
+        [runPath[i].lat, runPath[i].lng]
+      );
+    }
 
-      // Evaluate using simplified containment logic
-     const payload = {
-  userId: selectedUserId,
-  coordinates: coords,
-  duration,
-  laps,
-  avgSpeed
-};
+    const avgSpeed = duration > 0
+      ? (totalDistM / 1000) / (duration / 3600)
+      : 0;
 
-const res = await fetch(`${API_BASE}/api/run`, {
-  method: 'POST',
-  headers: { 'Content-Type': 'application/json' },
-  body: JSON.stringify(payload)
-});
+    if (avgSpeed <= 0) {
+      showGamifiedToast('Invalid speed detected', 'error');
+      resetRunUI();
+      return;
+    }
 
-const result = await res.json();
+    const laps = lapCount || 1;
 
-if (result.defended) {
-  showGamifiedToast('Territory defended!', 'error');
-} else if (result.captured) {
-  showGamifiedToast(
-    result.previousOwner
-      ? `⚔️ You defeated ${result.previousOwner}!`
-      : '⚔️ Territory captured!',
-    'success'
-  );
-} else {
-  showGamifiedToast('✨ New territory created!', 'success');
+    const payload = {
+      userId: selectedUserId,
+      coordinates: coords,
+      duration,
+      laps,
+      avgSpeed
+    };
+
+    const response = await fetch(`${API_BASE}/api/run`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+
+    if (!response.ok) {
+      const errData = await response.json().catch(() => null);
+      const msg = errData?.error || `HTTP ${response.status}`;
+      showGamifiedToast(`Server error: ${msg}`, 'error');
+      resetRunUI();
+      return;
+    }
+
+    const result = await response.json();
+
+    if (result.defended) {
+      showGamifiedToast('Territory defended!', 'error');
+    } else if (result.captured) {
+      showGamifiedToast(
+        result.previousOwner
+          ? `⚔️ You defeated ${result.previousOwner}!`
+          : '⚔️ Territory captured!',
+        'success'
+      );
+      startConfetti();
+      setTimeout(stopConfetti, 2000);
+    } else {
+      showGamifiedToast('✨ New territory created!', 'success');
+    }
+
+    await loadTerritories();
+
+  } catch (err) {
+    console.error(err);
+    showGamifiedToast('Unexpected error: ' + err.message, 'error');
+  } finally {
+    resetRunUI();
+  }
 }
 
 await loadTerritories();
